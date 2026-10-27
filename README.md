@@ -1,6 +1,6 @@
 # Fitler event scraper — Railway setup
 
-**Async update 1.0.4:** follow [`docs/ASYNC-UPDATE.md`](docs/ASYNC-UPDATE.md) for an existing deployment. A run starts immediately and the portal polls for progress/results, avoiding the observed approximately 125-second connection cutoff. The scrape retains its **4½-minute** deadline and **10-second** cleanup bound. A separate **credential-free public-page check** helps investigate missing event requests before another staff login. No live event success is claimed.
+**Bootstrap / job-status update 1.0.5:** follow [`docs/BOOTSTRAP-UPDATE.md`](docs/BOOTSTRAP-UPDATE.md) for an existing deployment. This fixes terminal-failure polling, adds a fail-closed job deadline, and permits one verified public Stripe bootstrap script required by the member app before it renders events. No payment APIs/actions are enabled. No successful live catalog is claimed.
 
 This is **only the private event-scraping service**, adapted from your uploaded `beta.zip`. Keep the existing portal hosted where it is. Do not upload the old React/Vite frontend or the old `.env` to this repository.
 
@@ -110,13 +110,13 @@ Use the same private repository and create a **Web Service**, not a Static Site.
 
 ## Security and verification
 
-- One fixed HTTPS target origin; other browser network origins, WebSockets, downloads, popups, fonts, images, and media requests are blocked. This keeps scraping narrow and reduces resource usage; a future portal requiring cross-origin assets needs explicit review.
+- One fixed member HTTPS origin plus exactly one reviewed public GET script: `https://js.stripe.com/dahlia/stripe.js`, with no query, credentials, redirects or response cookies. Other origins, Stripe frames/APIs/telemetry/writes, WebSockets, downloads, popups, fonts, images, and media are blocked. No wildcard origins are permitted.
 - Per-run isolated browser/context, closed after success or failure. No password logs, screenshots, traces, session saves, persistent cookies, or credential cache. Staff credentials exist transiently in process/browser memory and are not persisted. Application strings cannot guarantee cryptographic memory erasure.
 - 16 KiB client body limit; 270-second scrape deadline (maximum configurable 270 seconds), 120-second first parsed event-response wait, 10-second cleanup bound; 200 scrolls; 120 API responses; 4 MiB per event API response; 12 MiB collected response bytes; 500 events by default. HTTP connection/header limits and request throttles are also applied. Use host-level access controls/rate limiting for internet-scale abuse.
 - API totals, end-of-page metadata (including the PeopleVine `Pagination` header), or an explicit empty/short API page are required **in addition to** settled, completed scrolling. A quiet page with missing pagination keeps waiting within the deadline, rather than being treated as complete. Returned catalogs are never silently sliced.
 - Source HTML is **untrusted and intentionally preserved**. The portal must sanitize it with a maintained allowlist sanitizer before rendering; never load it into an unsanitized `iframe`/`srcDoc`. Encode titles, text and attributes; validate links/images. There is no frontend in this package.
 - Event time zone is `America/New_York`. Offset-less local values use New York DST rules, not the Docker server time zone. A nonexistent spring-forward wall time fails; ambiguous fall-back local times choose the earlier occurrence and set `ambiguousLocalTime: true` for review.
-- Only a complete successful scrape changes cached events and `fetchedAt`. Failure remains non-2xx even when stale prior data is returned. Cache is shared only with the trusted authenticated portal service, not public users; the portal must enforce staff access to this single Fitler tenant.
+- Only a complete successful scrape changes cached events and `fetchedAt`. Synchronous failures remain non-2xx. Polling an existing failed job returns HTTP 200 for the resource but `ok:false,status:"failed"` and its original status in `error.httpStatus`; never treat that as scrape success. Cache is shared only with the trusted authenticated portal service, not public users; the portal must enforce staff access to this single Fitler tenant.
 
 See [`docs/VERIFICATION.md`](docs/VERIFICATION.md) for exactly what was and was not run.
 
