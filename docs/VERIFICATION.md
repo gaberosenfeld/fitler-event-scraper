@@ -1,5 +1,12 @@
 # Verification — 2026-10-27
 
+## Diagnostic evidence update 1.0.2 (later same day)
+
+- **44 tests passed**, zero failures, including the prior 35 tests and nine evidence/allowlist tests.
+- New tests distinguish sandbox credentials/namespace denial from executable spawn denial, generic denied operations, singleton socket denial, missing libraries and nested cause/stderr. They verify evidence/summary secret exclusion, cyclic/oversized exception bounds, readable safe log messages and no evidence logging for real scrape operations.
+- The user's deployed 1.0.1 diagnostic proved a browser-launch permission restriction, but its category/logs did not identify the denied component. This update preserves the sandbox and adds only enum evidence; it is **not** a verified browser fix.
+- No new browser launch, staff login, repository write, host/config change or deployment was performed while preparing 1.0.2. Docker/runtime limits from the original verification remain. The next required observation is one deployed credential-free diagnostic and its safe evidence summary.
+
 ## Diagnostic update 1.0.1 (later same day)
 
 - `npm run check`: **35 passing tests**, zero failures, after adding authenticated blank-page browser diagnostics and safe phase/category logging.

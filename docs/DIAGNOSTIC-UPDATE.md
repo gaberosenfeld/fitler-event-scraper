@@ -1,4 +1,30 @@
-# 1.0.1 — diagnose the early Railway scrape failure without a staff login
+# 1.0.2 — narrow the denied browser operation without a staff login
+
+## What 1.0.2 adds (read this first)
+
+The user's deployed 1.0.1 blank-browser check returned `BROWSER_HOST_RESTRICTION` at `browser_launch`, before any PeopleVine navigation. That proves a permission-denied startup operation, not which operation or which host policy caused it. The original safe logs correctly showed the category but omitted the discriminating component.
+
+Version **1.0.2** adds `error.evidence` to that same authenticated no-login diagnostic, and a readable `message` field to its Railway log record. Both are assembled exclusively from fixed allowlists:
+
+- `errno`: `EACCES`, `EPERM`, `ENOENT`.
+- `components`: `sandbox_credentials`, `sandbox_namespace`, `sandbox_zygote`, `sandbox_setuid`, `process_singleton`, `crashpad`, `executable_spawn`, `shared_library_loader`.
+- `signatures`: specific fixed identifiers such as `sandbox_credentials_permission_failure`, `namespace_permission_failure`, `executable_spawn_permission_denied`, or `unspecified_permission_denied`.
+- `signals`: `SIGTRAP`, `SIGABRT`, `SIGKILL`, `SIGSEGV` when present in the startup exception.
+
+It checks bounded `Error.message`, nested `cause`, and `stderr` strings internally. **No original message, command, path, line number, stack, secret, or page text is emitted.** Unknown detail stays unknown. Real staff-login scrape responses do not expose this additional evidence.
+
+How to interpret the discriminator:
+
+- `sandbox_credentials_permission_failure` / `namespace_permission_failure`: Chromium ran but a sandbox setup operation was denied. Existing error code becomes `BROWSER_SANDBOX_UNAVAILABLE`. This still does **not** identify seccomp versus AppArmor or another kernel/host policy.
+- `executable_spawn_permission_denied`: the executable launch itself was denied; inspect executable/file/mount permissions instead of assuming a sandbox issue.
+- `singleton_socket_permission_denied`: browser profile/process-singleton socket setup was denied; it is not proof of a namespace problem.
+- `unspecified_permission_denied`: no more specific known signature; do not guess a cause.
+
+Upload this update as before, confirm `/health` says **1.0.2**, and run **one** owner no-login browser check. In Railway logs, expand the `failed` record matching its request ID: `message` contains the recognized evidence summary even if the portal does not yet display additive evidence fields. Do not retry staff login yet. No environment, sandbox, image or dependency change is required by this update.
+
+**This is a diagnosis update, not a browser fix.** Sandboxing remains enabled. Do not set `CHROMIUM_SANDBOX=false`, run the browser as root, add `SYS_ADMIN`, or use unconfined seccomp without a separate explicit risk decision. The official Playwright sandbox solution requires host support for the relevant namespace operations; a Dockerfile cannot itself grant host policy. Railway's official Playwright guide does not confirm that specific non-root sandbox configuration, so platform support or a verified sandbox-capable worker host may be needed after the discriminator is known.
+
+The prior 1.0.1 explanation follows for context. Its version-specific examples should now be read as **1.0.2** when verifying the active update.
 
 ## What is established
 

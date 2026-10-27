@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { ScrapeError } from './errors.js';
 import { TIME_ZONE } from './config.js';
+import { browserEvidence, sanitizeBrowserEvidence, browserEvidenceSummary } from './browser-evidence.js';
 
-export const SERVICE_VERSION = '1.0.1';
+export const SERVICE_VERSION = '1.0.2';
 const PHASES = new Set(['accepted', 'browser_import', 'browser_launch', 'context_create', 'page_create', 'browser_probe', 'login_page', 'login_form', 'login_submit', 'events_page', 'collect_events', 'normalize_events', 'cleanup', 'complete']);
 const CODES = new Set(['OK', 'BROWSER_SANDBOX_UNAVAILABLE', 'BROWSER_BINARY_MISSING', 'BROWSER_DEPENDENCIES_MISSING', 'BROWSER_HOST_RESTRICTION', 'BROWSER_LAUNCH_FAILED', 'BROWSER_CONTEXT_FAILED', 'BROWSER_PAGE_FAILED', 'BROWSER_PROBE_FAILED', 'BROWSER_ERROR', 'TIMEOUT', 'CANCELLED', 'LOGIN_FAILED', 'LOGIN_CHANGED', 'NO_API_RESPONSES', 'UPSTREAM_AUTH', 'UPSTREAM_ERROR', 'API_SCHEMA_CHANGED', 'RESPONSE_TOO_LARGE', 'EVENT_LIMIT', 'PAGINATION_INCOMPLETE', 'TARGET_BLOCKED', 'INVALID_EVENT']);
 
@@ -12,13 +13,13 @@ export function createOperationLog(kind, write = value => console.info(value), n
   const requestId = randomUUID();
   const started = now();
   let phase = 'accepted';
-  const emit = (event, code) => {
-    try { write(JSON.stringify({ service: 'fitler-events-scraper', version: SERVICE_VERSION, requestId, operation: kind === 'browser_diagnostic' ? kind : 'scrape', event, phase, elapsedMs: Math.max(0, now() - started), ...(code ? { code: CODES.has(code) ? code : 'BROWSER_ERROR' } : {}) })); } catch { /* Logging must not affect the request. */ }
+  const emit = (event, code, evidence) => {
+    try { write(JSON.stringify({ service: 'fitler-events-scraper', version: SERVICE_VERSION, requestId, operation: kind === 'browser_diagnostic' ? kind : 'scrape', event, phase, elapsedMs: Math.max(0, now() - started), ...(code ? { code: CODES.has(code) ? code : 'BROWSER_ERROR' } : {}), ...(kind === 'browser_diagnostic' && evidence ? { evidence: sanitizeBrowserEvidence(evidence), message: browserEvidenceSummary(evidence) } : {}) })); } catch { /* Logging must not affect the request. */ }
   };
   return {
     requestId,
     phase(value) { if (PHASES.has(value)) { phase = value; emit('phase'); } },
-    finish(code = 'OK', failedPhase) { if (PHASES.has(failedPhase)) phase = failedPhase; emit(code === 'OK' ? 'succeeded' : 'failed', code); },
+    finish(code = 'OK', failedPhase, evidence) { if (PHASES.has(failedPhase)) phase = failedPhase; emit(code === 'OK' ? 'succeeded' : 'failed', code, evidence); },
     currentPhase: () => phase
   };
 }
@@ -27,6 +28,11 @@ export function createOperationLog(kind, write = value => console.info(value), n
 export function browserFailure(error, phase = 'browser_launch') {
   const atPhase = result => { if (PHASES.has(phase)) result.phase = phase; return result; };
   if (error instanceof ScrapeError) return atPhase(error);
+  const evidence = browserEvidence(error);
+  if (evidence.signatures.some(value => ['sandbox_credentials_permission_failure', 'namespace_permission_failure', 'no_usable_sandbox', 'root_without_sandbox', 'setuid_sandbox_failure'].includes(value))) return atPhase(new ScrapeError('BROWSER_SANDBOX_UNAVAILABLE', 503));
+  if (evidence.signatures.includes('browser_executable_missing')) return atPhase(new ScrapeError('BROWSER_BINARY_MISSING', 503));
+  if (evidence.signatures.includes('shared_library_missing')) return atPhase(new ScrapeError('BROWSER_DEPENDENCIES_MISSING', 503));
+  if (evidence.errno.some(value => value === 'EACCES' || value === 'EPERM')) return atPhase(new ScrapeError('BROWSER_HOST_RESTRICTION', 503));
   const message = typeof error?.message === 'string' ? error.message : '';
   if (/No usable sandbox|SUID sandbox|Running as root without --no-sandbox|(?:namespace|zygote)[\s\S]{0,500}Operation not permitted/i.test(message)) return atPhase(new ScrapeError('BROWSER_SANDBOX_UNAVAILABLE', 503));
   if (/Executable doesn't exist|executable[^\n]*(?:not found|does not exist)|spawn[^\n]*ENOENT/i.test(message)) return atPhase(new ScrapeError('BROWSER_BINARY_MISSING', 503));
@@ -69,7 +75,11 @@ export async function checkBrowserStartup({ config, signal, browserType, observe
     const version = browser.version();
     return { diagnostic: 'browser-startup', browser: { launched: true, contextCreated: true, pageEvaluated: true, sandboxEnabled: config.chromiumSandbox, version: /^\d+(?:\.\d+){0,3}$/.test(version) ? version : 'unknown' } };
   } catch (error) {
-    throw browserFailure(controller.signal.aborted ? controller.signal.reason : error, phase);
+    const safe = browserFailure(controller.signal.aborted ? controller.signal.reason : error, phase);
+    // Only this no-login diagnostic exposes enum evidence; real scrapes do not.
+    safe.evidence = browserEvidence(error);
+    safe.message += ` ${browserEvidenceSummary(safe.evidence)}`;
+    throw safe;
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener('abort', cancel);

@@ -2,19 +2,21 @@
 
 Version 1.0.1 adds a credential-free authenticated browser diagnostic (below). Existing scrape and cache contracts remain compatible; browser startup failures now use specific JSON 503 codes. Do not interpret a diagnostic success as a successful event scrape.
 
+Version **1.0.2** additionally includes `error.evidence = {errno:[],components:[],signatures:[],signals:[]}` on no-login diagnostic failures. Every value is a fixed enum from `src/browser-evidence.js`; unknown values are dropped. Its fixed-text error message and safe application-log `message` summarize those identifiers. Do not display arbitrary upstream text in the portal: the existing fixed-category UI remains compatible, and the readable Railway application log can convey details without a portal update. No evidence field is added to real staff-login scrape failures.
+
 Server-only HTTPS calls. Never expose the shared secret to the browser. The portal backend must separately authenticate/authorize staff and protect its form endpoint against CSRF. Send no arbitrary target URL. Do not enable request-body logging.
 
 ## Health
 
-`GET /health` — public, `200 {"ok":true,"service":"fitler-events-scraper","version":"1.0.1","capabilities":{"browserDiagnostics":true}}`. This proves process readiness only, not browser/login/event freshness. `/api/health` is a compatibility alias.
+`GET /health` — public, `200 {"ok":true,"service":"fitler-events-scraper","version":"1.0.2","capabilities":{"browserDiagnostics":true}}`. This proves process readiness only, not browser/login/event freshness. `/api/health` is a compatibility alias.
 
 ## Browser startup diagnostic (no staff login)
 
 `POST /api/diagnostics/browser` uses the same private bearer authentication and server-only origin policy; `Content-Type: application/json`; body **exactly `{}`**. Credential fields or any other keys are rejected. The portal should enable this control only when `/health` advertises `capabilities.browserDiagnostics === true`.
 
-Success `200`: `{ok:true,diagnostic:"browser-startup",version:"1.0.1",requestId,checkedAt,browser:{launched:true,contextCreated:true,pageEvaluated:true,sandboxEnabled,version}}`. The browser version is numeric or `"unknown"`. No page is navigated; all network routes are blocked. Cache/fetchedAt are not changed.
+Success `200`: `{ok:true,diagnostic:"browser-startup",version:"1.0.2",requestId,checkedAt,browser:{launched:true,contextCreated:true,pageEvaluated:true,sandboxEnabled,version}}`. The browser version is numeric or `"unknown"`. No page is navigated; all network routes are blocked. Cache/fetchedAt are not changed.
 
-Failure is non-2xx JSON `{ok:false,diagnostic:"browser-startup",version:"1.0.1",requestId,error:{code,message,phase?}}`. Startup codes use **503**: `BROWSER_SANDBOX_UNAVAILABLE`, `BROWSER_BINARY_MISSING`, `BROWSER_DEPENDENCIES_MISSING`, `BROWSER_HOST_RESTRICTION`, `BROWSER_LAUNCH_FAILED`, `BROWSER_CONTEXT_FAILED`, `BROWSER_PAGE_FAILED`, `BROWSER_PROBE_FAILED`. `TIMEOUT` is 504; normal auth/validation/concurrency/rate statuses still apply. The same `requestId` appears in `X-Scraper-Request-Id` and privacy-safe application logs.
+Failure is non-2xx JSON `{ok:false,diagnostic:"browser-startup",version:"1.0.2",requestId,error:{code,message,phase?}}`. Startup codes use **503**: `BROWSER_SANDBOX_UNAVAILABLE`, `BROWSER_BINARY_MISSING`, `BROWSER_DEPENDENCIES_MISSING`, `BROWSER_HOST_RESTRICTION`, `BROWSER_LAUNCH_FAILED`, `BROWSER_CONTEXT_FAILED`, `BROWSER_PAGE_FAILED`, `BROWSER_PROBE_FAILED`. `TIMEOUT` is 504; normal auth/validation/concurrency/rate statuses still apply. The same `requestId` appears in `X-Scraper-Request-Id` and privacy-safe application logs.
 
 Startup phase enum: `browser_import`, `browser_launch`, `context_create`, `page_create`, `browser_probe`, `cleanup`. Normal scrape phase logs additionally use `accepted`, `login_page`, `login_form`, `login_submit`, `events_page`, `collect_events`, `normalize_events`, `complete`. Render only allowlisted categories/phases in the portal. Raw Playwright messages/stacks are never returned or logged.
 

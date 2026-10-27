@@ -1,6 +1,6 @@
 # Fitler event scraper — Railway setup
 
-**Already deployed but getting an early 502?** This is diagnostic update **1.0.1**. Follow [`docs/DIAGNOSTIC-UPDATE.md`](docs/DIAGNOSTIC-UPDATE.md) to test browser startup without a staff login. It preserves sandboxing and does not claim the live issue is fixed.
+**Already deployed but getting an early 502?** This is diagnostic update **1.0.2**. Follow [`docs/DIAGNOSTIC-UPDATE.md`](docs/DIAGNOSTIC-UPDATE.md) to test browser startup without a staff login. Version 1.0.2 adds enum-only denied-component/errno details and a readable Railway log message. It preserves sandboxing and does not claim the live issue is fixed.
 
 This is **only the private event-scraping service**, adapted from your uploaded `beta.zip`. Keep the existing portal hosted where it is. Do not upload the old React/Vite frontend or the old `.env` to this repository.
 

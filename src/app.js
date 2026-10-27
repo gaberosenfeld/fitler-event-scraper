@@ -3,6 +3,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { scrapeEvents } from './scraper.js';
 import { publicError } from './errors.js';
 import { checkBrowserStartup, createOperationLog, SERVICE_VERSION } from './diagnostics.js';
+import { sanitizeBrowserEvidence } from './browser-evidence.js';
 
 function authenticated(value, secret) {
   if (typeof value !== 'string' || !value.startsWith('Bearer ')) return false;
@@ -57,8 +58,10 @@ export function createApp({ config, scrape = scrapeEvents, diagnostic = checkBro
       operation.phase('complete'); operation.finish();
       if (!res.destroyed) res.json({ ok: true, ...result, version: SERVICE_VERSION, requestId: operation.requestId, checkedAt: new Date(now()).toISOString() });
     } catch (error) {
-      const safe = publicError(error); operation.finish(safe.code, safe.phase);
-      if (!res.destroyed) res.status(safe.status).json({ ok: false, diagnostic: 'browser-startup', version: SERVICE_VERSION, requestId: operation.requestId, error: { code: safe.code, message: safe.message, ...(safe.phase ? { phase: safe.phase } : {}) } });
+      const safe = publicError(error);
+      const evidence = sanitizeBrowserEvidence(safe.evidence);
+      operation.finish(safe.code, safe.phase, evidence);
+      if (!res.destroyed) res.status(safe.status).json({ ok: false, diagnostic: 'browser-startup', version: SERVICE_VERSION, requestId: operation.requestId, error: { code: safe.code, message: safe.message, ...(safe.phase ? { phase: safe.phase } : {}), evidence } });
     } finally {
       res.off('close', cancel); busy = false; activeController = null;
     }
