@@ -1,6 +1,6 @@
 # Fitler event scraper — Railway setup
 
-**Capture and slow-run update 1.0.3:** follow [`docs/CAPTURE-UPDATE.md`](docs/CAPTURE-UPDATE.md) if this service is already deployed. It restores pre-login event capture, waits for a parsed private event response, and allows **4½ minutes** for a slow complete scrape, plus bounded cleanup. The portal must also wait up to **5 minutes**. This is a tested source fix, not a claim that a live staff scrape has succeeded.
+**Async update 1.0.4:** follow [`docs/ASYNC-UPDATE.md`](docs/ASYNC-UPDATE.md) for an existing deployment. A run starts immediately and the portal polls for progress/results, avoiding the observed approximately 125-second connection cutoff. The scrape retains its **4½-minute** deadline and **10-second** cleanup bound. A separate **credential-free public-page check** helps investigate missing event requests before another staff login. No live event success is claimed.
 
 This is **only the private event-scraping service**, adapted from your uploaded `beta.zip`. Keep the existing portal hosted where it is. Do not upload the old React/Vite frontend or the old `.env` to this repository.
 
@@ -65,7 +65,7 @@ For the first real run:
 
 1. Verify the deployed health endpoint and an unauthenticated `/api/events` returning `401`.
 2. Enter authorized staff credentials only in the portal's private run-once login form. The portal sends them in the request body, never a URL. Do not save them in browser storage.
-3. Start a scrape once. Allow up to 4½ minutes plus cleanup/network overhead; set the portal proxy timeout to 300 seconds and keep the tab open. A second concurrent attempt is rejected.
+3. Start a scrape job once. The updated portal uses a short authenticated start request and polls the existing job every few seconds. Allow up to 4½ minutes plus cleanup. Closing a poll connection does not cancel the job; reopening the portal should recover its existing ID, never resend credentials automatically. A second concurrent browser operation is rejected.
 4. Confirm `ok: true`, `complete: true`, `cached: false`, `stale: false`, a new `fetchedAt`, and the expected number of events. Spot-check at least one event link, rich description, image, and New York date against the member portal.
 5. A login error, missing API response, timeout, limit, or unverified pagination is **not success**. Keep any prior events visibly labeled **last successful / stale**, preserving the original timestamp.
 

@@ -1,5 +1,15 @@
 # Verification — 2026-10-27
 
+## Async jobs and public-bootstrap update 1.0.4
+
+- **81 tests passed**, zero failures, plus syntax checks. Tests are local unit/security/mock HTTP/browser tests, not a live staff run.
+- Added coverage: immediate 202 and poll contract; UUID-key idempotency; GET-only ambiguous-start recovery; shared browser lock; disconnect survival; shutdown waiting for cleanup; non-2xx job failures and unchanged stale cache; capped result history/dedup tombstones; actual idle TTL cleanup; public diagnostic authentication/empty-body restriction/no-cache behavior; GET-only fixed-origin routing; safe structural evidence allowlisting; late redirect back to login during initial event readiness.
+- User-provided and portal evidence showed an upstream 524 at approximately 125 seconds while the application timer was 300 seconds. The service logged caller-disconnect cancellation and no completed response. Async start/poll addresses that demonstrated connection-lifetime problem; it does not prove event capture succeeds.
+- Read-only, credential-free inspection of public HTML/JavaScript confirmed the existing events path/group and valid current event assets. Public HTML contains 993 module-preload links. That and HTTP-cache behavior are observations, not a proven explanation for zero matching event requests.
+- Added a separately labeled fixed-public-page diagnostic with a 60-second operation bound plus 10-second cleanup, no login or API-body reads. It must be run on the deployed host before requesting another staff run; it has **not** been run live while preparing this package.
+- No repository push, deployment, host/secret/sandbox change, private API call, staff login or credential retrieval was performed. Docker/pinned-browser limitations below remain. No successful live catalog is claimed.
+
+
 ## Capture and slow-run update 1.0.3
 
 - **61 tests passed**, zero failures, plus JavaScript syntax checks. New tests use mock browser events/virtual elapsed time; they do not claim a multi-minute live login was tested.

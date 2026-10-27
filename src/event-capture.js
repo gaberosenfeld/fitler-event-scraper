@@ -63,10 +63,12 @@ export function attachEventCapture(page, { config, max, now = Date.now }) {
     active: () => pending.size > 0 || inFlight.size > 0,
     // First response must be fully parsed, not merely requested or received.
     // Polling stays abortable through the page and the outer scrape deadline.
-    async waitForFirst(assertActive) {
+    async waitForFirst(assertActive, inspect = async () => {}) {
       const deadline = now() + config.firstResponseTimeoutMs;
+      let nextInspection = now();
       while (counts.parsedResponses === 0) {
         assertActive();
+        if (now() >= nextInspection) { await inspect(); nextInspection = now() + 10000; assertActive(); }
         if (now() >= deadline) {
           if (pending.size > 0) throw new ScrapeError('TIMEOUT', 504);
           if (counts.publicResponses > 0 && counts.privateResponses === 0) throw new ScrapeError('UPSTREAM_AUTH', 401);

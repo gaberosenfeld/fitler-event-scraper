@@ -64,7 +64,7 @@ test('HTTP diagnostic is authenticated, rejects credentials, returns JSON 503 an
  const post=(body,auth=secret)=>fetch(base+'/api/diagnostics/browser',{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${auth}`},body:JSON.stringify(body)});
  assert.equal((await post({},'bad')).status,401);assert.equal((await post({email:'fake@example.invalid',password:'RAW_SECRET'})).status,400);assert.equal(runs,0);
  const response=await post({});assert.equal(response.status,503);assert.match(response.headers.get('content-type'),/application\/json/);
- const result=await response.json();assert.equal(result.error.code,'BROWSER_SANDBOX_UNAVAILABLE');assert.equal(result.error.phase,'browser_launch');assert.equal(result.version,'1.0.3');assert.equal(response.headers.get('x-scraper-request-id'),result.requestId);
+ const result=await response.json();assert.equal(result.error.code,'BROWSER_SANDBOX_UNAVAILABLE');assert.equal(result.error.phase,'browser_launch');assert.equal(result.version,'1.0.4');assert.equal(response.headers.get('x-scraper-request-id'),result.requestId);
  assert.equal(lines.join('\n').includes('RAW_SECRET'),false);assert.equal(lines.join('\n').includes('fake@example.invalid'),false);
  assert.equal((await fetch(base+'/api/events',{headers:{authorization:`Bearer ${secret}`}})).status,404);
 });

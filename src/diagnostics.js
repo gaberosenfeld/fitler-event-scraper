@@ -3,8 +3,9 @@ import { ScrapeError } from './errors.js';
 import { TIME_ZONE } from './config.js';
 import { browserEvidence, sanitizeBrowserEvidence, browserEvidenceSummary } from './browser-evidence.js';
 import { closeBrowserResources } from './browser-cleanup.js';
+import { sanitizePageEvidence } from './page-evidence.js';
 
-export const SERVICE_VERSION = '1.0.3';
+export const SERVICE_VERSION = '1.0.4';
 const PHASES = new Set(['accepted', 'browser_import', 'browser_launch', 'context_create', 'page_create', 'browser_probe', 'login_page', 'login_form', 'login_submit', 'events_page', 'collect_events', 'normalize_events', 'cleanup', 'complete']);
 const CODES = new Set(['OK', 'BROWSER_SANDBOX_UNAVAILABLE', 'BROWSER_BINARY_MISSING', 'BROWSER_DEPENDENCIES_MISSING', 'BROWSER_HOST_RESTRICTION', 'BROWSER_LAUNCH_FAILED', 'BROWSER_CONTEXT_FAILED', 'BROWSER_PAGE_FAILED', 'BROWSER_PROBE_FAILED', 'BROWSER_ERROR', 'TIMEOUT', 'CANCELLED', 'LOGIN_FAILED', 'LOGIN_CHANGED', 'NO_API_RESPONSES', 'UPSTREAM_AUTH', 'UPSTREAM_ERROR', 'API_SCHEMA_CHANGED', 'RESPONSE_TOO_LARGE', 'EVENT_LIMIT', 'PAGINATION_INCOMPLETE', 'TARGET_BLOCKED', 'INVALID_EVENT']);
 
@@ -15,7 +16,7 @@ export function createOperationLog(kind, write = value => console.info(value), n
   const started = now();
   let phase = 'accepted';
   const emit = (event, code, evidence, fields = {}) => {
-    try { write(JSON.stringify({ service: 'fitler-events-scraper', version: SERVICE_VERSION, requestId, operation: kind === 'browser_diagnostic' ? kind : 'scrape', event, phase, elapsedMs: Math.max(0, now() - started), ...(code ? { code: CODES.has(code) ? code : 'BROWSER_ERROR' } : {}), ...(kind === 'browser_diagnostic' && evidence ? { evidence: sanitizeBrowserEvidence(evidence), message: browserEvidenceSummary(evidence) } : {}), ...fields })); } catch { /* Logging must not affect the request. */ }
+    try { write(JSON.stringify({ service: 'fitler-events-scraper', version: SERVICE_VERSION, requestId, operation: ['browser_diagnostic', 'public_events_diagnostic'].includes(kind) ? kind : 'scrape', event, phase, elapsedMs: Math.max(0, now() - started), ...(code ? { code: CODES.has(code) ? code : 'BROWSER_ERROR' } : {}), ...(kind === 'browser_diagnostic' && evidence ? { evidence: sanitizeBrowserEvidence(evidence), message: browserEvidenceSummary(evidence) } : {}), ...fields })); } catch { /* Logging must not affect the request. */ }
   };
   return {
     requestId,
@@ -26,7 +27,7 @@ export function createOperationLog(kind, write = value => console.info(value), n
       for (const key of ['privateRequests', 'privateResponses', 'parsedResponses', 'publicResponses', 'authDenied', 'failedRequests']) {
         const n = value?.[key]; counts[key] = Number.isSafeInteger(n) && n >= 0 ? Math.min(n, 121) : 0;
       }
-      emit('event_capture', null, null, counts);
+      emit('event_capture', null, null, { ...counts, ...(value?.page ? { page: sanitizePageEvidence(value.page) } : {}) });
     },
     transport(event, value) {
       if (!['response_finish', 'response_close'].includes(event)) return;

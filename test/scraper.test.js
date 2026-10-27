@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events';
 import { scrapeEvents } from '../src/scraper.js';
 import { loadConfig, EVENTS_URL } from '../src/config.js';
 const config=loadConfig({SCRAPER_SHARED_SECRET:'test-only-not-a-real-secret-00000000'});
-function mockBrowser({pages=[[{id:1,title:'Mock',start_date:'2026-10-27T18:00:00Z'}]],headers=[{totalCount:1,hasNextPage:false}],loginFail=false,noApi=false,status=200,firstResponseMs=0,responseDuringLogin=false,bodyDelayMs=0,publicOnly=false,responseAtMs=[]}={}){
+function mockBrowser({pages=[[{id:1,title:'Mock',start_date:'2026-10-27T18:00:00Z'}]],headers=[{totalCount:1,hasNextPage:false}],loginFail=false,noApi=false,status=200,firstResponseMs=0,responseDuringLogin=false,bodyDelayMs=0,publicOnly=false,responseAtMs=[],lateLoginRedirectMs=null}={}){
  let time=0,current='',pageIndex=0,contextClosed=0,browserClosed=0,firstScrollAt=null,firstParsedAt=null;
  const delayed=[];
  const page=new EventEmitter();
@@ -18,8 +18,8 @@ function mockBrowser({pages=[[{id:1,title:'Mock',start_date:'2026-10-27T18:00:00
   page.emit('response',response);await new Promise(r=>setImmediate(r));
  }
  page.goto=async url=>{current=url;if(url===EVENTS_URL&&!responseDuringLogin)await emitPage()};
- page.evaluate=async fn=>{if(fn.toString().includes('atBottom'))return {height:1000+pageIndex*100,atBottom:true};firstScrollAt??=time;};
- page.waitForTimeout=async ms=>{time+=ms;for(const d of delayed)if(d.at<=time)d.resolve();await emitPage();await new Promise(r=>setImmediate(r));};
+ page.evaluate=async fn=>{if(fn.toString().includes('rootChildren'))return {readyState:'complete',rootChildren:1,snapshotAvailable:true};if(fn.toString().includes('atBottom'))return {height:1000+pageIndex*100,atBottom:true};firstScrollAt??=time;};
+ page.waitForTimeout=async ms=>{time+=ms;if(lateLoginRedirectMs!==null&&time>=lateLoginRedirectMs)current='https://member.fitlerclub.com/login';for(const d of delayed)if(d.at<=time)d.resolve();await emitPage();await new Promise(r=>setImmediate(r));};
  const context={setDefaultTimeout(){},setDefaultNavigationTimeout(){},route:async()=>{},routeWebSocket:async()=>{},newPage:async()=>page,close:async()=>{contextClosed++}};
  const browser={newContext:async()=>context,close:async()=>{browserClosed++}};
  return {browserType:{launch:async()=>browser},now:()=>time,timing:()=>({time,firstScrollAt,firstParsedAt}),closed:()=>({contextClosed,browserClosed})};
@@ -84,4 +84,8 @@ test('slow first response can take over a minute; delayed pagination can take se
 });
 test('response headers without a completed body reach bounded timeout, not empty success',async()=>{
  const mock=mockBrowser({bodyDelayMs:config.firstResponseTimeoutMs+1000});await assert.rejects(run(mock),{code:'TIMEOUT',status:504});assert.equal(mock.closed().browserClosed,1);
+});
+
+test('late navigation back to login during readiness is an authentication failure, not a slow empty catalog',async()=>{
+ const mock=mockBrowser({noApi:true,lateLoginRedirectMs:5000});await assert.rejects(run(mock),{code:'LOGIN_FAILED',status:401});assert.ok(mock.timing().time<config.firstResponseTimeoutMs);
 });

@@ -5,6 +5,7 @@ import { mapEvent } from './events.js';
 import { ScrapeError } from './errors.js';
 import { browserFailure, launchOptions } from './diagnostics.js';
 import { closeBrowserResources } from './browser-cleanup.js';
+import { attachPageEvidence } from './page-evidence.js';
 
 async function firstVisible(page, candidates, timeout = 8000) {
   // Combined locator races alternatives instead of multiplying per-selector timeouts.
@@ -26,7 +27,7 @@ export async function scrapeEvents({ email, password, max, config, signal, brows
   const onExternalAbort = () => controller.abort(new ScrapeError('CANCELLED', 499));
   signal?.addEventListener('abort', onExternalAbort, { once: true });
   if (signal?.aborted) onExternalAbort();
-  let browser, context, page, collector, capture;
+  let browser, context, page, collector, capture, pageEvidence;
   const abortBrowser = () => { void browser?.close().catch(() => {}); };
   controller.signal.addEventListener('abort', abortBrowser, { once: true });
   const assertActive = () => { if (controller.signal.aborted) throw controller.signal.reason; if (collector?.error) throw collector.error; };
@@ -51,6 +52,7 @@ export async function scrapeEvents({ email, password, max, config, signal, brows
     await context.routeWebSocket('**/*', socket => socket.close());
     setPhase('page_create');
     page = await context.newPage();
+    pageEvidence = attachPageEvidence(page);
     page.on('popup', popup => { void popup.close().catch(() => {}); });
     // Attach before sign-in, as in the uploaded build: redirects can fetch the
     // first authenticated event page before waitForURL resolves. Only the exact
@@ -79,7 +81,7 @@ export async function scrapeEvents({ email, password, max, config, signal, brows
     await page.goto(EVENTS_URL, { waitUntil: 'domcontentloaded' });
     checkTarget(page);
     setPhase('collect_events');
-    await capture.waitForFirst(assertActive);
+    await capture.waitForFirst(() => { assertActive(); checkTarget(page); }, pageEvidence.inspect);
     checkTarget(page);
     let previousSignature = '', stable = 0, reachedEnd = false;
     for (let i = 0; i < config.maxScrolls; i++) {
@@ -101,6 +103,7 @@ export async function scrapeEvents({ email, password, max, config, signal, brows
     if (!reachedEnd || capture.active()) throw new ScrapeError('PAGINATION_INCOMPLETE');
     setPhase('normalize_events');
     const result = collector.finish();
+    await pageEvidence.inspect();
     const events = result.rawEvents.map(mapEvent).sort((a, b) => (a.startISO || '9999').localeCompare(b.startISO || '9999'));
     return { events, complete: true, timeZone: TIME_ZONE, meta: result.meta };
   } catch (error) {
@@ -114,7 +117,8 @@ export async function scrapeEvents({ email, password, max, config, signal, brows
     // No storageState, screenshots, tracing, downloads, or password logs.
     if (capture) {
       capture.detach();
-      try { observeCapture(capture.snapshot()); } catch {}
+      pageEvidence?.detach();
+      try { observeCapture({ ...capture.snapshot(), page: pageEvidence?.snapshot() }); } catch {}
     }
     setPhase('cleanup');
     await closeBrowserResources(browser, context, config.cleanupTimeoutMs);

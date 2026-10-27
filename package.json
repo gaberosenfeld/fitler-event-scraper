@@ -1,6 +1,6 @@
 {
   "name": "fitler-events-scraper-service",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "private": true,
   "type": "module",
   "description": "Private, on-demand Fitler PeopleVine event scraper for Railway or Render",
@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node --env-file-if-exists=.env src/server.js",
     "test": "node --test test/*.test.js",
-    "check": "node --check src/server.js && node --check src/app.js && node --check src/scraper.js && node --check src/event-capture.js && node --check src/catalog.js && node --check src/events.js && node --check src/diagnostics.js && node --check src/browser-evidence.js && node --check src/browser-cleanup.js && npm test"
+    "check": "node --check src/server.js && node --check src/app.js && node --check src/scraper.js && node --check src/event-capture.js && node --check src/catalog.js && node --check src/events.js && node --check src/diagnostics.js && node --check src/browser-evidence.js && node --check src/browser-cleanup.js && node --check src/page-evidence.js && node --check src/jobs.js && node --check src/public-events-diagnostic.js && npm test"
   },
   "dependencies": {
     "express": "5.3.0",

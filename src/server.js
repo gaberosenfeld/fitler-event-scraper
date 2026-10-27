@@ -11,7 +11,8 @@ server.keepAliveTimeout = 5000;
 server.maxRequestsPerSocket = 100;
 server.maxConnections = 100;
 for (const signal of ['SIGTERM', 'SIGINT']) process.once(signal, () => {
-  cancelActive();
-  server.close(() => process.exit(0));
+  const operationClosed = cancelActive();
+  const httpClosed = new Promise(resolve => server.close(resolve));
+  Promise.all([operationClosed, httpClosed]).then(() => process.exit(0), () => process.exit(1));
   setTimeout(() => process.exit(1), 10000).unref();
 });
