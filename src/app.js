@@ -10,18 +10,32 @@ function authenticated(value, secret) {
   const given = Buffer.from(value.slice(7)), expected = Buffer.from(secret);
   return given.length === expected.length && timingSafeEqual(given, expected);
 }
+function watchResponse(res, operation) {
+  const report = event => {
+    const type = String(res.getHeader('content-type') || '').split(';')[0].toLowerCase();
+    operation.transport(event, {
+      httpStatus: res.statusCode,
+      contentType: !type ? 'none' : type === 'application/json' ? 'json' : type === 'text/plain' ? 'text' : 'other',
+      responseFinished: res.writableFinished,
+      responseEnded: res.writableEnded,
+      responseDestroyed: res.destroyed
+    });
+  };
+  res.once('finish', () => report('response_finish'));
+  res.once('close', () => report('response_close'));
+}
 export function createApp({ config, scrape = scrapeEvents, diagnostic = checkBrowserStartup, now = Date.now, logger } = {}) {
   if (!config?.secret) throw new Error('Secret configuration is required');
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', false);
-  let busy = false, lastAttempt = null, lastSuccess = null, activeController = null;
+  let busy = false, browserUnavailable = false, lastAttempt = null, lastSuccess = null, activeController = null;
   let rateWindow = now(), authenticatedRequests = 0;
   app.use((_req, res, next) => {
     res.set({ 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'" });
     next();
   });
-  app.get(['/health', '/api/health'], (_req, res) => res.json({ ok: true, service: 'fitler-events-scraper', version: SERVICE_VERSION, capabilities: { browserDiagnostics: true } }));
+  app.get(['/health', '/api/health'], (_req, res) => res.status(browserUnavailable ? 503 : 200).json({ ok: !browserUnavailable, service: 'fitler-events-scraper', version: SERVICE_VERSION, capabilities: { browserDiagnostics: true }, limits: { totalTimeoutMs: config.timeoutMs, firstResponseWaitMs: Math.min(config.firstResponseTimeoutMs, config.timeoutMs), cleanupTimeoutMs: config.cleanupTimeoutMs } }));
   app.use((req, res, next) => {
     // The browser calls its own authenticated portal backend, never this service.
     // No wildcard CORS and no cross-origin credentials. Block Origin even if bearer is valid.
@@ -42,6 +56,7 @@ export function createApp({ config, scrape = scrapeEvents, diagnostic = checkBro
     const valid = req.body && !Array.isArray(req.body) && Object.keys(req.body).length === 0;
     req.body = undefined;
     if (!valid) return res.status(400).json({ ok: false, error: { code: 'INVALID_REQUEST', message: 'Diagnostic accepts only {}. Do not send credentials.' } });
+    if (browserUnavailable) return res.status(503).json({ ok: false, error: { code: 'BROWSER_ERROR', message: 'Browser cleanup did not finish. Restart this service before another operation.' } });
     if (busy) return res.status(409).json({ ok: false, error: { code: 'BUSY', message: 'A browser operation is already running.' } });
     if (lastAttempt !== null && now() - lastAttempt < config.minIntervalMs) {
       res.set('Retry-After', String(Math.ceil((config.minIntervalMs - (now() - lastAttempt)) / 1000)));
@@ -49,6 +64,7 @@ export function createApp({ config, scrape = scrapeEvents, diagnostic = checkBro
     }
     busy = true; lastAttempt = now(); activeController = new AbortController();
     const operation = createOperationLog('browser_diagnostic', logger, now);
+    watchResponse(res, operation);
     operation.phase('accepted');
     res.set('X-Scraper-Request-Id', operation.requestId);
     const cancel = () => { if (!res.writableEnded) activeController?.abort(); };
@@ -59,6 +75,7 @@ export function createApp({ config, scrape = scrapeEvents, diagnostic = checkBro
       if (!res.destroyed) res.json({ ok: true, ...result, version: SERVICE_VERSION, requestId: operation.requestId, checkedAt: new Date(now()).toISOString() });
     } catch (error) {
       const safe = publicError(error);
+      if (safe.cleanupIncomplete === true) browserUnavailable = true;
       const evidence = sanitizeBrowserEvidence(safe.evidence);
       operation.finish(safe.code, safe.phase, evidence);
       if (!res.destroyed) res.status(safe.status).json({ ok: false, diagnostic: 'browser-startup', version: SERVICE_VERSION, requestId: operation.requestId, error: { code: safe.code, message: safe.message, ...(safe.phase ? { phase: safe.phase } : {}), evidence } });
@@ -79,6 +96,7 @@ export function createApp({ config, scrape = scrapeEvents, diagnostic = checkBro
     const max = body.max ?? config.maxEvents;
     delete body.email; delete body.password; req.body = undefined;
     const clear = () => { credentials.email = undefined; credentials.password = undefined; };
+    if (browserUnavailable) { clear(); return res.status(503).json({ ok: false, error: { code: 'BROWSER_ERROR', message: 'Browser cleanup did not finish. Restart this service before another operation.' } }); }
     if (busy) { clear(); return res.status(409).json({ ok: false, error: { code: 'BUSY', message: 'A scrape is already running.' } }); }
     if (lastAttempt !== null && now() - lastAttempt < config.minIntervalMs) {
       clear(); res.set('Retry-After', String(Math.ceil((config.minIntervalMs - (now() - lastAttempt)) / 1000)));
@@ -86,21 +104,23 @@ export function createApp({ config, scrape = scrapeEvents, diagnostic = checkBro
     }
     busy = true; lastAttempt = now(); activeController = new AbortController();
     const operation = createOperationLog('scrape', logger, now);
+    watchResponse(res, operation);
     operation.phase('accepted');
     res.set('X-Scraper-Request-Id', operation.requestId);
     const cancel = () => { if (!res.writableEnded) activeController?.abort(); };
     res.on('close', cancel);
     try {
-      const task = scrape({ ...credentials, max, config, signal: activeController.signal, observe: operation.phase });
+      const task = scrape({ ...credentials, max, config, signal: activeController.signal, observe: operation.phase, observeCapture: operation.capture });
       clear();
       const result = await task;
       // Guard against accidental partial-success regressions in scraper adapters.
       if (result.complete !== true || result.meta?.truncated !== false || !Array.isArray(result.events)) throw new Error('Incomplete result');
       lastSuccess = { ...result, fetchedAt: new Date(now()).toISOString() };
       operation.phase('complete'); operation.finish();
-      res.json({ ok: true, ...lastSuccess, cached: false, stale: false });
+      if (!res.destroyed) res.json({ ok: true, ...lastSuccess, cached: false, stale: false });
     } catch (error) {
       const safe = publicError(error);
+      if (safe.cleanupIncomplete === true) browserUnavailable = true;
       operation.finish(safe.code, safe.phase);
       if (!res.destroyed) res.status(safe.status).json({ ok: false, requestId: operation.requestId, error: { code: safe.code, message: safe.message, ...(safe.phase ? { phase: safe.phase } : {}) }, ...(lastSuccess ? { ...lastSuccess, cached: true, stale: true } : {}) });
     } finally {

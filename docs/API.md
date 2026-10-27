@@ -8,15 +8,15 @@ Server-only HTTPS calls. Never expose the shared secret to the browser. The port
 
 ## Health
 
-`GET /health` — public, `200 {"ok":true,"service":"fitler-events-scraper","version":"1.0.2","capabilities":{"browserDiagnostics":true}}`. This proves process readiness only, not browser/login/event freshness. `/api/health` is a compatibility alias.
+`GET /health` — public, `200 {"ok":true,"service":"fitler-events-scraper","version":"1.0.3","capabilities":{"browserDiagnostics":true}}`. The health response also includes numeric `limits:{totalTimeoutMs,firstResponseWaitMs,cleanupTimeoutMs}` from effective configuration. This proves process readiness only, not browser/login/event freshness. `/api/health` is a compatibility alias.
 
 ## Browser startup diagnostic (no staff login)
 
 `POST /api/diagnostics/browser` uses the same private bearer authentication and server-only origin policy; `Content-Type: application/json`; body **exactly `{}`**. Credential fields or any other keys are rejected. The portal should enable this control only when `/health` advertises `capabilities.browserDiagnostics === true`.
 
-Success `200`: `{ok:true,diagnostic:"browser-startup",version:"1.0.2",requestId,checkedAt,browser:{launched:true,contextCreated:true,pageEvaluated:true,sandboxEnabled,version}}`. The browser version is numeric or `"unknown"`. No page is navigated; all network routes are blocked. Cache/fetchedAt are not changed.
+Success `200`: `{ok:true,diagnostic:"browser-startup",version:"1.0.3",requestId,checkedAt,browser:{launched:true,contextCreated:true,pageEvaluated:true,sandboxEnabled,version}}`. The browser version is numeric or `"unknown"`. No page is navigated; all network routes are blocked. Cache/fetchedAt are not changed.
 
-Failure is non-2xx JSON `{ok:false,diagnostic:"browser-startup",version:"1.0.2",requestId,error:{code,message,phase?}}`. Startup codes use **503**: `BROWSER_SANDBOX_UNAVAILABLE`, `BROWSER_BINARY_MISSING`, `BROWSER_DEPENDENCIES_MISSING`, `BROWSER_HOST_RESTRICTION`, `BROWSER_LAUNCH_FAILED`, `BROWSER_CONTEXT_FAILED`, `BROWSER_PAGE_FAILED`, `BROWSER_PROBE_FAILED`. `TIMEOUT` is 504; normal auth/validation/concurrency/rate statuses still apply. The same `requestId` appears in `X-Scraper-Request-Id` and privacy-safe application logs.
+Failure is non-2xx JSON `{ok:false,diagnostic:"browser-startup",version:"1.0.3",requestId,error:{code,message,phase?}}`. Startup codes use **503**: `BROWSER_SANDBOX_UNAVAILABLE`, `BROWSER_BINARY_MISSING`, `BROWSER_DEPENDENCIES_MISSING`, `BROWSER_HOST_RESTRICTION`, `BROWSER_LAUNCH_FAILED`, `BROWSER_CONTEXT_FAILED`, `BROWSER_PAGE_FAILED`, `BROWSER_PROBE_FAILED`. `TIMEOUT` is 504; normal auth/validation/concurrency/rate statuses still apply. The same `requestId` appears in `X-Scraper-Request-Id` and privacy-safe application logs.
 
 Startup phase enum: `browser_import`, `browser_launch`, `context_create`, `page_create`, `browser_probe`, `cleanup`. Normal scrape phase logs additionally use `accepted`, `login_page`, `login_form`, `login_submit`, `events_page`, `collect_events`, `normalize_events`, `complete`. Render only allowlisted categories/phases in the portal. Raw Playwright messages/stacks are never returned or logged.
 
@@ -31,7 +31,7 @@ The diagnostic shares the one-browser lock and 30-second cooldown with scraping.
 - No `Origin` header: call from your backend, not browser `fetch`.
 - Body: `{ "email": "<staff email>", "password": "<staff password>", "max": 500 }`
 - `max` is optional, integer 1–`MAX_EVENTS`, and is a collection safety cap—not truncation/pagination. Unknown body keys are rejected.
-- Allow at least 105 seconds at the caller for the default 90-second scrape timeout.
+- Keep the caller connected for up to 300 seconds: the default/maximum scrape deadline is 270 seconds, followed by at most 10 seconds of cleanup. The first parsed private event response may take up to 120 seconds within the total deadline. Do not automatically retry or replay credentials. An existing lower SCRAPE_TIMEOUT_MS setting must be removed or explicitly changed to 270000 to use the new allowance.
 
 Success (`200`):
 
@@ -79,3 +79,14 @@ Do not retry login failures automatically. User cancellation closes the active b
 `GET /api/events` — same bearer authentication; no staff password. Returns the last successful result with `ok:true,cached:true,stale:true`, retaining original `fetchedAt`. A cached result is not a new scrape and is deliberately never labeled fresh. Before the first success or after restart: `404 NO_CACHE`.
 
 Cache is memory-only and single-instance. Do not scale beyond one replica without an explicit shared cache/locking design. This service is for the one Fitler portal, not a multi-tenant credential proxy.
+
+
+## 1.0.3 capture and transport visibility
+
+The listener is attached before login, but parses only the exact approved private event endpoint. Login responses, other API bodies, and public fallback event bodies are not collected. A public-only event fallback without private event data yields `UPSTREAM_AUTH`, not a successful empty catalog. Network origin restrictions are unchanged.
+
+Safe application logs add `event_capture` with capped numeric `privateRequests`, `privateResponses`, `parsedResponses`, `publicResponses`, `authDenied`, and `failedRequests`. No URLs, headers, tokens, login bodies or event contents are logged. `response_finish` and `response_close` log only HTTP status, MIME enum (`json`, `text`, `other`, `none`), elapsed time and response-ended/finished/destroyed booleans. A finish record shows Node completed writing its response; it does **not** prove delivery through every proxy to the caller.
+
+If browser cleanup cannot complete within 10 seconds, the operation fails with JSON 503 `BROWSER_ERROR` at `cleanup`, saves no fresh result, and quarantines new browser operations until the service is restarted. `/health` returns 503 while quarantined. This prevents launching new browser work beside an unclosed prior browser.
+
+[Railway's documented network limit](https://docs.railway.com/networking/public-networking/specs-and-limits) is five minutes without transferred data. This service stays below it rather than streaming a premature 200 or introducing a background credential/job store. [Workers HTTP requests](https://developers.cloudflare.com/workers/platform/limits/) can wait while the caller remains connected; a separate intermediary can still impose its own limit. Longer-than-five-minute work would require a separately reviewed asynchronous design.

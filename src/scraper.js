@@ -1,9 +1,10 @@
 import { selectors } from './selectors.js';
-import { CatalogCollector, isEventsApi } from './catalog.js';
+import { attachEventCapture } from './event-capture.js';
 import { LOGIN_URL, EVENTS_URL, TARGET_ORIGIN, TIME_ZONE } from './config.js';
 import { mapEvent } from './events.js';
-import { ScrapeError, publicError } from './errors.js';
+import { ScrapeError } from './errors.js';
 import { browserFailure, launchOptions } from './diagnostics.js';
+import { closeBrowserResources } from './browser-cleanup.js';
 
 async function firstVisible(page, candidates, timeout = 8000) {
   // Combined locator races alternatives instead of multiplying per-selector timeouts.
@@ -17,7 +18,7 @@ function checkTarget(page) {
   if (/^\/login(?:\/|$)/i.test(u.pathname)) throw new ScrapeError('LOGIN_FAILED', 401);
 }
 
-export async function scrapeEvents({ email, password, max, config, signal, browserType, now = Date.now, observe = () => {} }) {
+export async function scrapeEvents({ email, password, max, config, signal, browserType, now = Date.now, observe = () => {}, observeCapture = () => {} }) {
   let phase = 'browser_import';
   const setPhase = value => { phase = value; observe(value); };
   const controller = new AbortController();
@@ -25,7 +26,7 @@ export async function scrapeEvents({ email, password, max, config, signal, brows
   const onExternalAbort = () => controller.abort(new ScrapeError('CANCELLED', 499));
   signal?.addEventListener('abort', onExternalAbort, { once: true });
   if (signal?.aborted) onExternalAbort();
-  let browser, context, page, collector;
+  let browser, context, page, collector, capture;
   const abortBrowser = () => { void browser?.close().catch(() => {}); };
   controller.signal.addEventListener('abort', abortBrowser, { once: true });
   const assertActive = () => { if (controller.signal.aborted) throw controller.signal.reason; if (collector?.error) throw collector.error; };
@@ -50,7 +51,12 @@ export async function scrapeEvents({ email, password, max, config, signal, brows
     await context.routeWebSocket('**/*', socket => socket.close());
     setPhase('page_create');
     page = await context.newPage();
-    page.on('popup', popup => { void popup.close(); });
+    page.on('popup', popup => { void popup.close().catch(() => {}); });
+    // Attach before sign-in, as in the uploaded build: redirects can fetch the
+    // first authenticated event page before waitForURL resolves. Only the exact
+    // approved event endpoint is parsed; login response bodies are never read.
+    capture = attachEventCapture(page, { config, max, now });
+    collector = capture.collector;
     // Login uses the uploaded build's two-step form and selector fallbacks.
     setPhase('login_page');
     await page.goto(LOGIN_URL, { waitUntil: 'domcontentloaded' });
@@ -69,41 +75,12 @@ export async function scrapeEvents({ email, password, max, config, signal, brows
     } catch { assertActive(); throw new ScrapeError('LOGIN_FAILED', 401); }
     checkTarget(page);
 
-    collector = new CatalogCollector({ ...config, maxEvents: max });
-    const pending = new Set(), inFlight = new Set();
-    let lastActivity = now();
-    page.on('request', request => { if (isEventsApi(request.url())) { inFlight.add(request); lastActivity = now(); } });
-    page.on('requestfinished', request => { inFlight.delete(request); });
-    page.on('requestfailed', request => {
-      if (isEventsApi(request.url())) collector.error ||= new ScrapeError('UPSTREAM_ERROR');
-      inFlight.delete(request);
-    });
-    page.on('response', response => {
-      if (!isEventsApi(response.url())) return;
-      lastActivity = now();
-      const task = (async () => {
-        if ([401, 403].includes(response.status())) throw new ScrapeError('UPSTREAM_AUTH', 401);
-        if (!response.ok()) throw new ScrapeError('UPSTREAM_ERROR');
-        const length = Number(await response.headerValue('content-length'));
-        if (length > config.maxResponseBytes) throw new ScrapeError('RESPONSE_TOO_LARGE');
-        const body = await response.body();
-        if (body.length > config.maxResponseBytes) throw new ScrapeError('RESPONSE_TOO_LARGE');
-        let data;
-        try { data = JSON.parse(body.toString('utf8')); } catch { throw new ScrapeError('API_SCHEMA_CHANGED'); }
-        const header = await response.headerValue('pagination');
-        let pagination = null;
-        if (header) {
-          try { pagination = JSON.parse(header); } catch { throw new ScrapeError('API_SCHEMA_CHANGED'); }
-          if (!pagination || typeof pagination !== 'object' || Array.isArray(pagination)) throw new ScrapeError('API_SCHEMA_CHANGED');
-        }
-        collector.accept(data, response.url(), body.length, pagination);
-      })().catch(error => { collector.error ||= publicError(error); }).finally(() => { pending.delete(task); lastActivity = now(); });
-      pending.add(task);
-    });
     setPhase('events_page');
     await page.goto(EVENTS_URL, { waitUntil: 'domcontentloaded' });
     checkTarget(page);
     setPhase('collect_events');
+    await capture.waitForFirst(assertActive);
+    checkTarget(page);
     let previousSignature = '', stable = 0, reachedEnd = false;
     for (let i = 0; i < config.maxScrolls; i++) {
       assertActive();
@@ -112,13 +89,16 @@ export async function scrapeEvents({ email, password, max, config, signal, brows
       assertActive(); checkTarget(page);
       const state = await page.evaluate(() => ({ height: document.documentElement.scrollHeight, atBottom: window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 5 }));
       const signature = `${state.height}:${collector.events.size}:${collector.responses}`;
-      const quiet = pending.size === 0 && inFlight.size === 0 && now() - lastActivity >= 1000;
+      const quiet = capture.quiet();
       stable = state.atBottom && quiet && signature === previousSignature ? stable + 1 : 0;
       previousSignature = signature;
-      if (stable >= 3) { reachedEnd = true; break; }
+      // A slow next page is not the end: keep waiting/scrolling until the
+      // captured API pagination proves completeness or a bound is reached.
+      if (stable >= 3 && collector.hasCompleteCatalog()) { reachedEnd = true; break; }
     }
     assertActive();
-    if (!reachedEnd || pending.size || inFlight.size) throw new ScrapeError('PAGINATION_INCOMPLETE');
+    await capture.drain(assertActive);
+    if (!reachedEnd || capture.active()) throw new ScrapeError('PAGINATION_INCOMPLETE');
     setPhase('normalize_events');
     const result = collector.finish();
     const events = result.rawEvents.map(mapEvent).sort((a, b) => (a.startISO || '9999').localeCompare(b.startISO || '9999'));
@@ -132,8 +112,11 @@ export async function scrapeEvents({ email, password, max, config, signal, brows
     signal?.removeEventListener('abort', onExternalAbort);
     controller.signal.removeEventListener('abort', abortBrowser);
     // No storageState, screenshots, tracing, downloads, or password logs.
+    if (capture) {
+      capture.detach();
+      try { observeCapture(capture.snapshot()); } catch {}
+    }
     setPhase('cleanup');
-    await context?.close().catch(() => {});
-    await browser?.close().catch(() => {});
+    await closeBrowserResources(browser, context, config.cleanupTimeoutMs);
   }
 }

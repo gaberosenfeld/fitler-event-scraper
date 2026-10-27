@@ -2,8 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { ScrapeError } from './errors.js';
 import { TIME_ZONE } from './config.js';
 import { browserEvidence, sanitizeBrowserEvidence, browserEvidenceSummary } from './browser-evidence.js';
+import { closeBrowserResources } from './browser-cleanup.js';
 
-export const SERVICE_VERSION = '1.0.2';
+export const SERVICE_VERSION = '1.0.3';
 const PHASES = new Set(['accepted', 'browser_import', 'browser_launch', 'context_create', 'page_create', 'browser_probe', 'login_page', 'login_form', 'login_submit', 'events_page', 'collect_events', 'normalize_events', 'cleanup', 'complete']);
 const CODES = new Set(['OK', 'BROWSER_SANDBOX_UNAVAILABLE', 'BROWSER_BINARY_MISSING', 'BROWSER_DEPENDENCIES_MISSING', 'BROWSER_HOST_RESTRICTION', 'BROWSER_LAUNCH_FAILED', 'BROWSER_CONTEXT_FAILED', 'BROWSER_PAGE_FAILED', 'BROWSER_PROBE_FAILED', 'BROWSER_ERROR', 'TIMEOUT', 'CANCELLED', 'LOGIN_FAILED', 'LOGIN_CHANGED', 'NO_API_RESPONSES', 'UPSTREAM_AUTH', 'UPSTREAM_ERROR', 'API_SCHEMA_CHANGED', 'RESPONSE_TOO_LARGE', 'EVENT_LIMIT', 'PAGINATION_INCOMPLETE', 'TARGET_BLOCKED', 'INVALID_EVENT']);
 
@@ -13,13 +14,31 @@ export function createOperationLog(kind, write = value => console.info(value), n
   const requestId = randomUUID();
   const started = now();
   let phase = 'accepted';
-  const emit = (event, code, evidence) => {
-    try { write(JSON.stringify({ service: 'fitler-events-scraper', version: SERVICE_VERSION, requestId, operation: kind === 'browser_diagnostic' ? kind : 'scrape', event, phase, elapsedMs: Math.max(0, now() - started), ...(code ? { code: CODES.has(code) ? code : 'BROWSER_ERROR' } : {}), ...(kind === 'browser_diagnostic' && evidence ? { evidence: sanitizeBrowserEvidence(evidence), message: browserEvidenceSummary(evidence) } : {}) })); } catch { /* Logging must not affect the request. */ }
+  const emit = (event, code, evidence, fields = {}) => {
+    try { write(JSON.stringify({ service: 'fitler-events-scraper', version: SERVICE_VERSION, requestId, operation: kind === 'browser_diagnostic' ? kind : 'scrape', event, phase, elapsedMs: Math.max(0, now() - started), ...(code ? { code: CODES.has(code) ? code : 'BROWSER_ERROR' } : {}), ...(kind === 'browser_diagnostic' && evidence ? { evidence: sanitizeBrowserEvidence(evidence), message: browserEvidenceSummary(evidence) } : {}), ...fields })); } catch { /* Logging must not affect the request. */ }
   };
   return {
     requestId,
     phase(value) { if (PHASES.has(value)) { phase = value; emit('phase'); } },
     finish(code = 'OK', failedPhase, evidence) { if (PHASES.has(failedPhase)) phase = failedPhase; emit(code === 'OK' ? 'succeeded' : 'failed', code, evidence); },
+    capture(value) {
+      const counts = {};
+      for (const key of ['privateRequests', 'privateResponses', 'parsedResponses', 'publicResponses', 'authDenied', 'failedRequests']) {
+        const n = value?.[key]; counts[key] = Number.isSafeInteger(n) && n >= 0 ? Math.min(n, 121) : 0;
+      }
+      emit('event_capture', null, null, counts);
+    },
+    transport(event, value) {
+      if (!['response_finish', 'response_close'].includes(event)) return;
+      const status = value?.httpStatus;
+      emit(event, null, null, {
+        httpStatus: Number.isInteger(status) && status >= 100 && status <= 599 ? status : 0,
+        contentType: ['json', 'text', 'other', 'none'].includes(value?.contentType) ? value.contentType : 'other',
+        responseFinished: value?.responseFinished === true,
+        responseEnded: value?.responseEnded === true,
+        responseDestroyed: value?.responseDestroyed === true
+      });
+    },
     currentPhase: () => phase
   };
 }
@@ -86,6 +105,6 @@ export async function checkBrowserStartup({ config, signal, browserType, observe
     controller.signal.removeEventListener('abort', closeOnAbort);
     setPhase('cleanup');
     // Start both closes, so a context teardown cannot prevent browser teardown.
-    await Promise.all([context?.close().catch(() => {}), browser?.close().catch(() => {})]);
+    await closeBrowserResources(browser, context, config.cleanupTimeoutMs);
   }
 }

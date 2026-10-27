@@ -15,3 +15,11 @@ test('deploy config and secret exclusions are present; credential placeholders b
  for(const file of ['.gitignore','.dockerignore'])assert.ok(read(file).split('\n').includes('.env'));
  for(const key of ['SCRAPER_SHARED_SECRET','FITLER_EMAIL','FITLER_PASSWORD'])assert.match(read('.env.example'),new RegExp(`^${key}=$`,'m'));
 });
+
+test('slow-work budget stays below Railway idle limit and retains collection bounds',async()=>{
+ const {loadConfig}=await import('../src/config.js');const config=loadConfig({SCRAPER_SHARED_SECRET:'test-only-not-a-real-secret-00000000'});
+ assert.equal(config.timeoutMs,270000);assert.equal(config.firstResponseTimeoutMs,120000);assert.equal(config.maxScrolls,200);
+ assert.equal(config.cleanupTimeoutMs,10000);assert.ok(config.timeoutMs+config.cleanupTimeoutMs<300000);
+ assert.equal(config.maxApiResponses,120);assert.equal(config.maxEvents,500);
+ assert.throws(()=>loadConfig({SCRAPER_SHARED_SECRET:'test-only-not-a-real-secret-00000000',SCRAPE_TIMEOUT_MS:'270001'}),/SCRAPE_TIMEOUT_MS/);
+});

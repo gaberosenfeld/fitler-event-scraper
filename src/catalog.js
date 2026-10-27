@@ -55,10 +55,13 @@ export class CatalogCollector {
     this.terminal = !!end;
     this.evidence = end;
   }
+  hasCompleteCatalog() {
+    return !this.error && this.responses > 0 && this.terminal && (this.total === null || this.events.size === this.total);
+  }
   finish() {
     if (this.error) throw this.error;
     if (!this.responses) throw new ScrapeError('NO_API_RESPONSES');
-    if (!this.terminal || (this.total !== null && this.events.size !== this.total)) throw new ScrapeError('PAGINATION_INCOMPLETE');
+    if (!this.hasCompleteCatalog()) throw new ScrapeError('PAGINATION_INCOMPLETE');
     return { rawEvents: [...this.events.values()], meta: { apiResponses: this.responses, totalCollected: this.events.size, returned: this.events.size, truncated: false, completionEvidence: this.evidence } };
   }
 }

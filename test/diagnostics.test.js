@@ -47,6 +47,15 @@ test('safe logging ignores arbitrary phase and replaces arbitrary code',()=>{
  assert.equal(lines.length,2);assert.ok(lines.every(line=>!line.includes('RAW_SECRET')&&!line.includes('PASSWORD_FROM_PAGE')));
  assert.equal(JSON.parse(lines[1]).code,'BROWSER_ERROR');
 });
+test('transport and capture logs strictly allowlist enum, number and boolean metadata',()=>{
+ const lines=[];const log=createOperationLog('scrape',line=>lines.push(line),()=>100);
+ log.transport('SECRET_EVENT',{httpStatus:502});
+ log.transport('response_close',{httpStatus:'SECRET_STATUS',contentType:'SECRET_TYPE',responseFinished:'SECRET_BOOL',password:'SECRET_PASSWORD'});
+ log.capture({privateResponses:999999,parsedResponses:'SECRET_COUNT',publicResponses:-5,url:'SECRET_URL'});
+ assert.equal(lines.length,2);assert.equal(lines.join('\n').includes('SECRET'),false);
+ const [transport,capture]=lines.map(JSON.parse);assert.equal(transport.httpStatus,0);assert.equal(transport.contentType,'other');assert.equal(transport.responseFinished,false);
+ assert.equal(capture.privateResponses,121);assert.equal(capture.parsedResponses,0);assert.equal(capture.publicResponses,0);
+});
 test('HTTP diagnostic is authenticated, rejects credentials, returns JSON 503 and does not create catalog',async t=>{
  const lines=[];let runs=0;
  const {app}=createApp({config,logger:line=>lines.push(line),diagnostic:async({observe})=>{runs++;observe('browser_launch');throw browserFailure(new Error('No usable sandbox! RAW_SECRET'),'browser_launch')}});
@@ -55,7 +64,7 @@ test('HTTP diagnostic is authenticated, rejects credentials, returns JSON 503 an
  const post=(body,auth=secret)=>fetch(base+'/api/diagnostics/browser',{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${auth}`},body:JSON.stringify(body)});
  assert.equal((await post({},'bad')).status,401);assert.equal((await post({email:'fake@example.invalid',password:'RAW_SECRET'})).status,400);assert.equal(runs,0);
  const response=await post({});assert.equal(response.status,503);assert.match(response.headers.get('content-type'),/application\/json/);
- const result=await response.json();assert.equal(result.error.code,'BROWSER_SANDBOX_UNAVAILABLE');assert.equal(result.error.phase,'browser_launch');assert.equal(result.version,'1.0.2');assert.equal(response.headers.get('x-scraper-request-id'),result.requestId);
+ const result=await response.json();assert.equal(result.error.code,'BROWSER_SANDBOX_UNAVAILABLE');assert.equal(result.error.phase,'browser_launch');assert.equal(result.version,'1.0.3');assert.equal(response.headers.get('x-scraper-request-id'),result.requestId);
  assert.equal(lines.join('\n').includes('RAW_SECRET'),false);assert.equal(lines.join('\n').includes('fake@example.invalid'),false);
  assert.equal((await fetch(base+'/api/events',{headers:{authorization:`Bearer ${secret}`}})).status,404);
 });

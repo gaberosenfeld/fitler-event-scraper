@@ -2,7 +2,7 @@ const MESSAGES = {
   LOGIN_FAILED: 'Sign-in did not complete. Check staff credentials or complete any required verification in the member portal.',
   LOGIN_CHANGED: 'The member portal sign-in form changed or did not load.',
   NO_API_RESPONSES: 'No event API response was observed; no fresh catalog was saved.',
-  UPSTREAM_AUTH: 'The event API rejected the signed-in session.',
+  UPSTREAM_AUTH: 'An authenticated event session was not available or the event API rejected it. No fresh catalog was saved.',
   UPSTREAM_ERROR: 'The event API returned an error; no fresh catalog was saved.',
   API_SCHEMA_CHANGED: 'The event response format changed; no fresh catalog was saved.',
   RESPONSE_TOO_LARGE: 'The event response exceeded the safety limit.',

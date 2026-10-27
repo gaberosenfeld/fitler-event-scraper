@@ -1,5 +1,15 @@
 # Verification — 2026-10-27
 
+## Capture and slow-run update 1.0.3
+
+- **61 tests passed**, zero failures, plus JavaScript syntax checks. New tests use mock browser events/virtual elapsed time; they do not claim a multi-minute live login was tested.
+- The delayed-first-response and login-redirect capture regressions both fail against unchanged 1.0.2 with NO_API_RESPONSES and pass against 1.0.3. These prove source defects; the exact trigger in the user's live request remains unproven.
+- Tests cover initial response delayed 90 seconds, a later page delayed 150 seconds, delayed/pending body parsing, public-only fallback, endpoint/body privacy, failed-request/response-count bounds, unchanged pagination limits, real local HTTP JSON 502 response completion and disconnect cancellation, safe transport log allowlists, and bounded cleanup/quarantine.
+- Effective default total budget is 270 seconds, first parsed event-response wait 120 seconds, cleanup 10 seconds, and 200 scrolls. Existing event/byte/response limits, fixed origin, authentication, single-flight and sandbox configuration are retained. The portal must independently use a 300-second caller timeout.
+- No GitHub write, deployment, host/credential setting change, private API call or staff login was performed for this update. Docker and real-browser restrictions below remain. No successful live event refresh is claimed.
+- User-provided application logs show the prior actual scrape reached events/collection phases and caught NO_API_RESPONSES around 12 seconds; those phases alone do not prove successful authentication. Local tests show the app can emit that error as JSON 502; why the deployed caller saw text/plain is not established. Safe response-finish/close logs are added to locate that boundary.
+
+
 ## Diagnostic evidence update 1.0.2 (later same day)
 
 - **44 tests passed**, zero failures, including the prior 35 tests and nine evidence/allowlist tests.

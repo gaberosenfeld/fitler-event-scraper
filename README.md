@@ -1,6 +1,6 @@
 # Fitler event scraper — Railway setup
 
-**Already deployed but getting an early 502?** This is diagnostic update **1.0.2**. Follow [`docs/DIAGNOSTIC-UPDATE.md`](docs/DIAGNOSTIC-UPDATE.md) to test browser startup without a staff login. Version 1.0.2 adds enum-only denied-component/errno details and a readable Railway log message. It preserves sandboxing and does not claim the live issue is fixed.
+**Capture and slow-run update 1.0.3:** follow [`docs/CAPTURE-UPDATE.md`](docs/CAPTURE-UPDATE.md) if this service is already deployed. It restores pre-login event capture, waits for a parsed private event response, and allows **4½ minutes** for a slow complete scrape, plus bounded cleanup. The portal must also wait up to **5 minutes**. This is a tested source fix, not a claim that a live staff scrape has succeeded.
 
 This is **only the private event-scraping service**, adapted from your uploaded `beta.zip`. Keep the existing portal hosted where it is. Do not upload the old React/Vite frontend or the old `.env` to this repository.
 
@@ -65,7 +65,7 @@ For the first real run:
 
 1. Verify the deployed health endpoint and an unauthenticated `/api/events` returning `401`.
 2. Enter authorized staff credentials only in the portal's private run-once login form. The portal sends them in the request body, never a URL. Do not save them in browser storage.
-3. Start a scrape once. Allow up to 90 seconds plus network overhead; set the portal proxy timeout to at least 105 seconds. A second concurrent attempt is rejected.
+3. Start a scrape once. Allow up to 4½ minutes plus cleanup/network overhead; set the portal proxy timeout to 300 seconds and keep the tab open. A second concurrent attempt is rejected.
 4. Confirm `ok: true`, `complete: true`, `cached: false`, `stale: false`, a new `fetchedAt`, and the expected number of events. Spot-check at least one event link, rich description, image, and New York date against the member portal.
 5. A login error, missing API response, timeout, limit, or unverified pagination is **not success**. Keep any prior events visibly labeled **last successful / stale**, preserving the original timestamp.
 
@@ -112,8 +112,8 @@ Use the same private repository and create a **Web Service**, not a Static Site.
 
 - One fixed HTTPS target origin; other browser network origins, WebSockets, downloads, popups, fonts, images, and media requests are blocked. This keeps scraping narrow and reduces resource usage; a future portal requiring cross-origin assets needs explicit review.
 - Per-run isolated browser/context, closed after success or failure. No password logs, screenshots, traces, session saves, persistent cookies, or credential cache. Staff credentials exist transiently in process/browser memory and are not persisted. Application strings cannot guarantee cryptographic memory erasure.
-- 16 KiB client body limit; 90-second scrape deadline (maximum configurable 120 seconds); 80 scrolls; 120 API responses; 4 MiB per event API response; 12 MiB collected response bytes; 500 events by default. HTTP connection/header limits and request throttles are also applied. Use host-level access controls/rate limiting for internet-scale abuse.
-- API totals, end-of-page metadata (including the PeopleVine `Pagination` header), or an explicit empty/short API page are required **in addition to** settled, completed scrolling. Returned catalogs are never silently sliced.
+- 16 KiB client body limit; 270-second scrape deadline (maximum configurable 270 seconds), 120-second first parsed event-response wait, 10-second cleanup bound; 200 scrolls; 120 API responses; 4 MiB per event API response; 12 MiB collected response bytes; 500 events by default. HTTP connection/header limits and request throttles are also applied. Use host-level access controls/rate limiting for internet-scale abuse.
+- API totals, end-of-page metadata (including the PeopleVine `Pagination` header), or an explicit empty/short API page are required **in addition to** settled, completed scrolling. A quiet page with missing pagination keeps waiting within the deadline, rather than being treated as complete. Returned catalogs are never silently sliced.
 - Source HTML is **untrusted and intentionally preserved**. The portal must sanitize it with a maintained allowlist sanitizer before rendering; never load it into an unsanitized `iframe`/`srcDoc`. Encode titles, text and attributes; validate links/images. There is no frontend in this package.
 - Event time zone is `America/New_York`. Offset-less local values use New York DST rules, not the Docker server time zone. A nonexistent spring-forward wall time fails; ambiguous fall-back local times choose the earlier occurrence and set `ambiguousLocalTime: true` for review.
 - Only a complete successful scrape changes cached events and `fetchedAt`. Failure remains non-2xx even when stale prior data is returned. Cache is shared only with the trusted authenticated portal service, not public users; the portal must enforce staff access to this single Fitler tenant.

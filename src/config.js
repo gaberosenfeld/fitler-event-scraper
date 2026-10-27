@@ -19,11 +19,15 @@ export function loadConfig(env = process.env) {
     secret,
     port: integer(env.PORT, 5174, 1, 65535, 'PORT'),
     headless: env.HEADLESS !== 'false',
-    timeoutMs: integer(env.SCRAPE_TIMEOUT_MS, 90000, 15000, 120000, 'SCRAPE_TIMEOUT_MS'),
+    // Railway closes an idle HTTP request after five minutes. Leave thirty
+    // seconds for browser teardown and returning the final JSON response.
+    timeoutMs: integer(env.SCRAPE_TIMEOUT_MS, 270000, 15000, 270000, 'SCRAPE_TIMEOUT_MS'),
+    firstResponseTimeoutMs: 120000,
+    cleanupTimeoutMs: 10000,
     maxEvents: integer(env.MAX_EVENTS, 500, 1, 1000, 'MAX_EVENTS'),
     minIntervalMs: integer(env.MIN_SCRAPE_INTERVAL_MS, 30000, 1000, 3600000, 'MIN_SCRAPE_INTERVAL_MS'),
     maxApiResponses: 120,
-    maxScrolls: 80,
+    maxScrolls: 200,
     maxResponseBytes: 4 * 1024 * 1024,
     maxCatalogBytes: 12 * 1024 * 1024,
     // Fail closed rather than silently disabling Chromium's OS sandbox.
