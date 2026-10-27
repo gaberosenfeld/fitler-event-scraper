@@ -38,7 +38,7 @@ test('no API response, login failure, API authentication and partial pagination 
 });
 test('launch/context failures do not leak credentials and close acquired resources',async()=>{
  let closed=false;const mock={browserType:{launch:async()=>({newContext:async()=>{throw new Error('TEST_ONLY_PASSWORD')},close:async()=>{closed=true}})}};
- await assert.rejects(run(mock),error=>error.code==='BROWSER_ERROR'&&!error.message.includes('TEST_ONLY_PASSWORD'));assert.equal(closed,true);
+ await assert.rejects(run(mock),error=>error.code==='BROWSER_CONTEXT_FAILED'&&!error.message.includes('TEST_ONLY_PASSWORD'));assert.equal(closed,true);
 });
 test('already aborted request never launches Chromium',async()=>{
  const controller=new AbortController();controller.abort();let launched=false;

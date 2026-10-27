@@ -11,6 +11,14 @@ const MESSAGES = {
   TIMEOUT: 'The scrape timed out. No fresh catalog was saved.',
   CANCELLED: 'The scrape was cancelled.',
   BROWSER_ERROR: 'The browser could not complete the scrape. Check the container/browser configuration.',
+  BROWSER_SANDBOX_UNAVAILABLE: 'The host prevented Chromium sandbox startup. Review host sandbox support; sandboxing has not been disabled.',
+  BROWSER_BINARY_MISSING: 'The matching Playwright browser executable or package is missing. Rebuild using the supplied Dockerfile.',
+  BROWSER_DEPENDENCIES_MISSING: 'Chromium system dependencies are missing. Rebuild using the matching official Playwright image.',
+  BROWSER_HOST_RESTRICTION: 'The host blocked a browser process operation. Check deployment process permissions and runtime restrictions.',
+  BROWSER_LAUNCH_FAILED: 'Chromium could not start. Check the safe diagnostic phase/category in application logs.',
+  BROWSER_CONTEXT_FAILED: 'Chromium started but could not create an isolated browser context.',
+  BROWSER_PAGE_FAILED: 'Chromium could not create an isolated page.',
+  BROWSER_PROBE_FAILED: 'Chromium could not evaluate the credential-free startup probe.',
   TARGET_BLOCKED: 'The member portal navigated outside its approved domain.',
   INVALID_EVENT: 'An event has invalid required fields; no fresh catalog was saved.'
 };

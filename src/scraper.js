@@ -3,6 +3,7 @@ import { CatalogCollector, isEventsApi } from './catalog.js';
 import { LOGIN_URL, EVENTS_URL, TARGET_ORIGIN, TIME_ZONE } from './config.js';
 import { mapEvent } from './events.js';
 import { ScrapeError, publicError } from './errors.js';
+import { browserFailure, launchOptions } from './diagnostics.js';
 
 async function firstVisible(page, candidates, timeout = 8000) {
   // Combined locator races alternatives instead of multiplying per-selector timeouts.
@@ -16,7 +17,9 @@ function checkTarget(page) {
   if (/^\/login(?:\/|$)/i.test(u.pathname)) throw new ScrapeError('LOGIN_FAILED', 401);
 }
 
-export async function scrapeEvents({ email, password, max, config, signal, browserType, now = Date.now }) {
+export async function scrapeEvents({ email, password, max, config, signal, browserType, now = Date.now, observe = () => {} }) {
+  let phase = 'browser_import';
+  const setPhase = value => { phase = value; observe(value); };
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(new ScrapeError('TIMEOUT', 504)), config.timeoutMs);
   const onExternalAbort = () => controller.abort(new ScrapeError('CANCELLED', 499));
@@ -28,9 +31,12 @@ export async function scrapeEvents({ email, password, max, config, signal, brows
   const assertActive = () => { if (controller.signal.aborted) throw controller.signal.reason; if (collector?.error) throw collector.error; };
   try {
     assertActive();
+    setPhase('browser_import');
     const chromium = browserType || (await import('playwright')).chromium;
-    browser = await chromium.launch({ headless: config.headless, chromiumSandbox: config.chromiumSandbox, timeout: 15000, args: ['--disable-dev-shm-usage'] });
+    setPhase('browser_launch');
+    browser = await chromium.launch(launchOptions(config));
     assertActive();
+    setPhase('context_create');
     context = await browser.newContext({ timezoneId: TIME_ZONE, acceptDownloads: false, serviceWorkers: 'block' });
     context.setDefaultTimeout(8000);
     context.setDefaultNavigationTimeout(20000);
@@ -42,11 +48,14 @@ export async function scrapeEvents({ email, password, max, config, signal, brows
       return allowed ? route.continue() : route.abort('blockedbyclient');
     });
     await context.routeWebSocket('**/*', socket => socket.close());
+    setPhase('page_create');
     page = await context.newPage();
     page.on('popup', popup => { void popup.close(); });
     // Login uses the uploaded build's two-step form and selector fallbacks.
+    setPhase('login_page');
     await page.goto(LOGIN_URL, { waitUntil: 'domcontentloaded' });
     try {
+      setPhase('login_form');
       await (await firstVisible(page, selectors.login.emailInput)).fill(email);
       await (await firstVisible(page, selectors.login.emailNextButton)).click();
       await (await firstVisible(page, selectors.login.passwordInput)).fill(password);
@@ -54,6 +63,7 @@ export async function scrapeEvents({ email, password, max, config, signal, brows
     // Do not retain credentials in scraper locals after they enter the isolated page.
     email = undefined; password = undefined;
     try {
+      setPhase('login_submit');
       await (await firstVisible(page, selectors.login.loginButton)).click();
       await page.waitForURL(url => url.origin === TARGET_ORIGIN && !/^\/login(?:\/|$)/i.test(url.pathname), { timeout: 15000 });
     } catch { assertActive(); throw new ScrapeError('LOGIN_FAILED', 401); }
@@ -90,8 +100,10 @@ export async function scrapeEvents({ email, password, max, config, signal, brows
       })().catch(error => { collector.error ||= publicError(error); }).finally(() => { pending.delete(task); lastActivity = now(); });
       pending.add(task);
     });
+    setPhase('events_page');
     await page.goto(EVENTS_URL, { waitUntil: 'domcontentloaded' });
     checkTarget(page);
+    setPhase('collect_events');
     let previousSignature = '', stable = 0, reachedEnd = false;
     for (let i = 0; i < config.maxScrolls; i++) {
       assertActive();
@@ -107,18 +119,20 @@ export async function scrapeEvents({ email, password, max, config, signal, brows
     }
     assertActive();
     if (!reachedEnd || pending.size || inFlight.size) throw new ScrapeError('PAGINATION_INCOMPLETE');
+    setPhase('normalize_events');
     const result = collector.finish();
     const events = result.rawEvents.map(mapEvent).sort((a, b) => (a.startISO || '9999').localeCompare(b.startISO || '9999'));
     return { events, complete: true, timeZone: TIME_ZONE, meta: result.meta };
   } catch (error) {
-    if (controller.signal.aborted) throw controller.signal.reason;
-    throw publicError(error);
+    if (controller.signal.aborted) throw browserFailure(controller.signal.reason, phase);
+    throw browserFailure(error, phase);
   } finally {
     email = undefined; password = undefined;
     clearTimeout(timeout);
     signal?.removeEventListener('abort', onExternalAbort);
     controller.signal.removeEventListener('abort', abortBrowser);
     // No storageState, screenshots, tracing, downloads, or password logs.
+    setPhase('cleanup');
     await context?.close().catch(() => {});
     await browser?.close().catch(() => {});
   }

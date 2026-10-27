@@ -1,5 +1,15 @@
 # Verification — 2026-10-27
 
+## Diagnostic update 1.0.1 (later same day)
+
+- `npm run check`: **35 passing tests**, zero failures, after adding authenticated blank-page browser diagnostics and safe phase/category logging.
+- Added tests cover known sandbox/binary/dependency/host-restriction categories, fixed safe error text, phase log allowlisting, network/WebSocket blocking, acquired resource closure, cancellation, authenticated HTTP JSON 503, credential-field rejection, no catalog/cache mutation, and a shared diagnostic/scrape lock and cooldown.
+- Read-only access to `gaberosenfeld/fitler-event-scraper` succeeded. The `main` branch's package manifest, Dockerfile, scraper and Express app matched the original ZIP byte-for-byte (Git blob hashes verified). The connector reported public visibility and read-only/pull permission, no push permission. No files were written to GitHub, no secret files were opened and no deployment was performed.
+- The user-reported live deployment's early non-JSON 502 is **not a proven root cause**. The new diagnostic endpoint has **not yet been deployed or run on Railway**. Sandbox stays enabled, dependency/browser image versions are unchanged, and no staff credentials were requested or used.
+- The original runtime/browser limits below still apply. The update fixes missing diagnostic visibility and typed startup errors; it is not a verified fix for live event scraping. See `DIAGNOSTIC-UPDATE.md` for the required deployed check.
+
+## Original package verification (1.0.0)
+
 ## Passed
 
 - Verified the authoritative uploaded `beta.zip` SHA-256: `771384031c2b19aab6a23187246ea969decac4ce0e5756de82ae4e3a21ee3a8a`; original archive was not modified.

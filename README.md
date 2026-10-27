@@ -1,5 +1,7 @@
 # Fitler event scraper — Railway setup
 
+**Already deployed but getting an early 502?** This is diagnostic update **1.0.1**. Follow [`docs/DIAGNOSTIC-UPDATE.md`](docs/DIAGNOSTIC-UPDATE.md) to test browser startup without a staff login. It preserves sandboxing and does not claim the live issue is fixed.
+
 This is **only the private event-scraping service**, adapted from your uploaded `beta.zip`. Keep the existing portal hosted where it is. Do not upload the old React/Vite frontend or the old `.env` to this repository.
 
 The service signs into `https://member.fitlerclub.com` with staff credentials supplied for **one run**, opens `/events`, captures `/api/events?group=events` responses, and scrolls through the catalog. It preserves event IDs, links, short summaries, full source HTML, images, categories, locations, and New York event times.
