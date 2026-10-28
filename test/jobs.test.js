@@ -124,7 +124,7 @@ test('POST connection closure does not cancel a job; explicit shutdown does', as
   const controller = new AbortController(); const started = await request('/api/scrape/jobs', { ...post(id), signal: controller.signal }); assert.equal(started.status, 202);
   await started.json(); controller.abort(); while (!running) await tick(); await tick(); assert.equal(aborts, 0);
   assert.equal((await (await request('/api/scrape/jobs/' + id)).json()).status, 'running');
-  cancelActive(); const done = await terminal(request, id); assert.equal(done.response.status, 499); assert.equal(done.body.status, 'failed'); assert.equal(done.body.error.code, 'CANCELLED'); assert.equal(aborts, 1);
+  cancelActive(); const done = await terminal(request, id); assert.equal(done.response.status, 200); assert.equal(done.body.error.httpStatus, 499); assert.equal(done.body.status, 'failed'); assert.equal(done.body.error.code, 'CANCELLED'); assert.equal(aborts, 1);
 });
 test('shutdown returns a completion promise that waits for detached-job cleanup', async t => {
   let started = false, cleanupFinished = false;
@@ -139,7 +139,7 @@ test('shutdown returns a completion promise that waits for detached-job cleanup'
   const done = await terminal(request, id); assert.equal(done.body.status, 'failed'); assert.equal(done.body.error.code, 'CANCELLED');
   await cancelActive();
 });
-test('terminal failure preserves non-2xx status and stale cache timestamp; partial success rejected', async t => {
+test('found failed-job resource is HTTP200 with original failure status and unchanged stale timestamp', async t => {
   let time = 1700000000000, calls = 0;
   const { request } = await fixture(t, async () => {
     if (++calls === 1) return good;
@@ -148,9 +148,9 @@ test('terminal failure preserves non-2xx status and stale cache timestamp; parti
   }, () => time);
   const first = randomUUID(); await request('/api/scrape/jobs', post(first)); const success = await terminal(request, first);
   time += 2000; const second = randomUUID(); await request('/api/scrape/jobs', post(second)); const failure = await terminal(request, second);
-  assert.equal(failure.response.status, 401); assert.equal(failure.body.ok, false); assert.equal(failure.body.error.code, 'UPSTREAM_AUTH');
+  assert.equal(failure.response.status, 200); assert.equal(failure.body.error.httpStatus, 401); assert.equal(failure.body.ok, false); assert.equal(failure.body.status, 'failed'); assert.equal(failure.body.error.code, 'UPSTREAM_AUTH');
   assert.equal(failure.body.result.ok, false); assert.equal(failure.body.result.stale, true); assert.equal(failure.body.result.fetchedAt, success.body.result.fetchedAt);
-  time += 2000; const third = randomUUID(); await request('/api/scrape/jobs', post(third)); const partial = await terminal(request, third); assert.equal(partial.response.status, 502);
+  time += 2000; const third = randomUUID(); await request('/api/scrape/jobs', post(third)); const partial = await terminal(request, third); assert.equal(partial.response.status, 200); assert.equal(partial.body.error.httpStatus, 502);
   assert.equal((await (await request('/api/events')).json()).fetchedAt, success.body.result.fetchedAt);
 });
 test('result eviction keeps a tombstone; expiry and restart are unknown without automatic retry', async t => {
@@ -164,7 +164,7 @@ test('result eviction keeps a tombstone; expiry and restart are unknown without 
 });
 test('async cleanup failure quarantines all new browser work and cannot create fresh cache', async t => {
   const { request } = await fixture(t, async () => { const error = new ScrapeError('BROWSER_ERROR', 503); error.phase = 'cleanup'; error.cleanupIncomplete = true; throw error; });
-  const id = randomUUID(); await request('/api/scrape/jobs', post(id)); const done = await terminal(request, id); assert.equal(done.response.status, 503); assert.equal(done.body.phase, 'cleanup');
+  const id = randomUUID(); await request('/api/scrape/jobs', post(id)); const done = await terminal(request, id); assert.equal(done.response.status, 200); assert.equal(done.body.error.httpStatus, 503); assert.equal(done.body.phase, 'cleanup');
   assert.equal((await request('/api/scrape/jobs', post(randomUUID()))).status, 503); assert.equal((await request('/api/diagnostics/browser', post(id, {}))).status, 503);
   assert.equal((await request('/api/events')).status, 404); assert.equal((await request('/health')).status, 503);
 });

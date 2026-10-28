@@ -56,35 +56,71 @@ export function createApp({ config, scrape = scrapeEvents, diagnostic = checkBro
   });
   async function runJob(job, credentials, max, controller, operation) {
     const clear = () => { credentials.email = undefined; credentials.password = undefined; };
-    const observe = phase => { operation.phase(phase); job.phase = operation.currentPhase(); };
+    let terminal = false, deadlineExceeded = false;
+    const observe = phase => { if (!terminal) { operation.phase(phase); job.phase = operation.currentPhase(); } };
+    const observeCapture = value => { if (!terminal) operation.capture(value); };
+    const fail = (error, cleanupUnconfirmed = false) => {
+      if (terminal) return;
+      if (now() - job.startedMs >= config.timeoutMs) deadlineExceeded = true;
+      const original = publicError(error);
+      const safe = deadlineExceeded ? new ScrapeError('TIMEOUT', 504) : original;
+      if (cleanupUnconfirmed || original.cleanupIncomplete === true) browserUnavailable = true;
+      terminal = true;
+      operation.finish(safe.code, safe.phase);
+      job.phase = operation.currentPhase(); job.status = 'failed'; job.httpStatus = safe.status;
+      job.error = { code: safe.code, message: safe.message, phase: job.phase };
+      if (lastSuccess) job.result = { ok: false, ...lastSuccess, cached: true, stale: true };
+      jobs.finish(job);
+    };
+    // The scraper's own timer is cooperative. A stuck Playwright call must not
+    // keep an API job "running" forever, nor permit another unknown browser.
+    const remainingMs = Math.max(0, config.timeoutMs - Math.max(0, now() - job.startedMs));
+    const deadline = setTimeout(() => {
+      deadlineExceeded = true;
+      controller.abort(new ScrapeError('TIMEOUT', 504));
+    }, remainingMs);
+    const hardDeadline = setTimeout(() => {
+      deadlineExceeded = true;
+      controller.abort(new ScrapeError('TIMEOUT', 504));
+      fail(new ScrapeError('TIMEOUT', 504), true);
+      clear();
+      // Keep busy/active completion until the original task actually settles.
+      // Quarantine is sticky even if it later settles: restart before more work.
+    }, remainingMs + config.cleanupTimeoutMs);
+    deadline.unref?.(); hardDeadline.unref?.();
     try {
       if (controller.signal.aborted) throw new ScrapeError('CANCELLED', 499);
-      const task = scrape({ ...credentials, max, config, signal: controller.signal, observe, observeCapture: operation.capture });
+      const task = scrape({ ...credentials, max, config, signal: controller.signal, observe, observeCapture });
       clear();
       const result = await task;
+      if (terminal) return; // An eventual result cannot revive a timed-out job.
+      if (now() - job.startedMs >= config.timeoutMs) deadlineExceeded = true;
+      if (deadlineExceeded) throw new ScrapeError('TIMEOUT', 504);
       if (controller.signal.aborted) throw new ScrapeError('CANCELLED', 499);
       if (result.complete !== true || result.meta?.truncated !== false || !Array.isArray(result.events)) throw new Error('Incomplete result');
       lastSuccess = { ...result, fetchedAt: new Date(now()).toISOString() };
       observe('complete'); operation.finish();
       job.status = 'succeeded'; job.httpStatus = 200;
       job.result = { ok: true, ...lastSuccess, cached: false, stale: false };
+      terminal = true; jobs.finish(job);
     } catch (error) {
-      const safe = publicError(error);
-      if (safe.cleanupIncomplete === true) browserUnavailable = true;
-      operation.finish(safe.code, safe.phase);
-      job.phase = operation.currentPhase(); job.status = 'failed'; job.httpStatus = safe.status;
-      job.error = { code: safe.code, message: safe.message, phase: job.phase };
-      if (lastSuccess) job.result = { ok: false, ...lastSuccess, cached: true, stale: true };
+      fail(error);
     } finally {
-      clear(); jobs.finish(job); busy = false;
-      if (activeController === controller) activeController = null;
+      clearTimeout(deadline); clearTimeout(hardDeadline); clear();
+      if (activeController === controller) { activeController = null; busy = false; }
     }
   }
   app.get('/api/scrape/jobs/:jobId', (req, res) => {
     const job = isJobId(req.params.jobId) ? jobs.find(req.params.jobId) : null;
     if (!job) return res.status(404).json({ ok: false, error: { code: 'JOB_NOT_FOUND', message: 'This job is unknown, expired, or was lost when the service restarted. Do not automatically resend credentials.' } });
     const metadata = jobs.metadata(job);
-    if (job.status === 'failed') return res.status(job.httpStatus).json({ ok: false, ...metadata, error: job.error, ...(job.result ? { result: job.result } : {}) });
+    if (job.status === 'failed') {
+      // The job resource was found successfully. Keep its terminal failure in
+      // the JSON envelope, distinct from a failed polling transport request.
+      // This is not a successful scrape: ok remains false and status is failed.
+      const httpStatus = Number.isInteger(job.httpStatus) && job.httpStatus >= 400 && job.httpStatus <= 599 ? job.httpStatus : 502;
+      return res.json({ ok: false, ...metadata, error: { ...job.error, httpStatus }, ...(job.result ? { result: job.result } : {}) });
+    }
     return res.json({ ok: true, ...metadata, ...(job.status === 'succeeded' ? { result: job.result } : {}) });
   });
   app.post('/api/scrape/jobs', (req, res, next) => {

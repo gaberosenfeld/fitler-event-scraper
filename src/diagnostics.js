@@ -5,7 +5,7 @@ import { browserEvidence, sanitizeBrowserEvidence, browserEvidenceSummary } from
 import { closeBrowserResources } from './browser-cleanup.js';
 import { sanitizePageEvidence } from './page-evidence.js';
 
-export const SERVICE_VERSION = '1.0.4';
+export const SERVICE_VERSION = '1.0.5';
 const PHASES = new Set(['accepted', 'browser_import', 'browser_launch', 'context_create', 'page_create', 'browser_probe', 'login_page', 'login_form', 'login_submit', 'events_page', 'collect_events', 'normalize_events', 'cleanup', 'complete']);
 const CODES = new Set(['OK', 'BROWSER_SANDBOX_UNAVAILABLE', 'BROWSER_BINARY_MISSING', 'BROWSER_DEPENDENCIES_MISSING', 'BROWSER_HOST_RESTRICTION', 'BROWSER_LAUNCH_FAILED', 'BROWSER_CONTEXT_FAILED', 'BROWSER_PAGE_FAILED', 'BROWSER_PROBE_FAILED', 'BROWSER_ERROR', 'TIMEOUT', 'CANCELLED', 'LOGIN_FAILED', 'LOGIN_CHANGED', 'NO_API_RESPONSES', 'UPSTREAM_AUTH', 'UPSTREAM_ERROR', 'API_SCHEMA_CHANGED', 'RESPONSE_TOO_LARGE', 'EVENT_LIMIT', 'PAGINATION_INCOMPLETE', 'TARGET_BLOCKED', 'INVALID_EVENT']);
 

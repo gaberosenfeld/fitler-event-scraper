@@ -6,6 +6,7 @@ import { ScrapeError } from './errors.js';
 import { browserFailure, launchOptions } from './diagnostics.js';
 import { closeBrowserResources } from './browser-cleanup.js';
 import { attachPageEvidence } from './page-evidence.js';
+import { routeBrowserRequest } from './network-policy.js';
 
 async function firstVisible(page, candidates, timeout = 8000) {
   // Combined locator races alternatives instead of multiplying per-selector timeouts.
@@ -42,13 +43,9 @@ export async function scrapeEvents({ email, password, max, config, signal, brows
     context = await browser.newContext({ timezoneId: TIME_ZONE, acceptDownloads: false, serviceWorkers: 'block' });
     context.setDefaultTimeout(8000);
     context.setDefaultNavigationTimeout(20000);
-    // Fixed origin, not an arbitrary URL proxy. Images/fonts/media are unnecessary.
-    await context.route('**/*', route => {
-      const request = route.request();
-      let allowed = false;
-      try { allowed = new URL(request.url()).origin === TARGET_ORIGIN && !['image', 'font', 'media'].includes(request.resourceType()); } catch {}
-      return allowed ? route.continue() : route.abort('blockedbyclient');
-    });
+    // Fixed member origin plus one verified public bootstrap script; no general
+    // external requests, Stripe data endpoints, payments or arbitrary URL proxy.
+    await context.route('**/*', route => routeBrowserRequest(route));
     await context.routeWebSocket('**/*', socket => socket.close());
     setPhase('page_create');
     page = await context.newPage();

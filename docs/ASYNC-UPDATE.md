@@ -1,3 +1,5 @@
+> Historical 1.0.4 notes. For the current 1.0.5 update, use [BOOTSTRAP-UPDATE.md](BOOTSTRAP-UPDATE.md).
+
 # Update the existing deployment to 1.0.4
 
 1. Extract this ZIP. Upload the folder's **contents** to the same GitHub repository root, replacing the older source. Include the new `src/jobs.js`, `src/page-evidence.js`, `src/public-events-diagnostic.js`, tests and docs. Include the three dotfiles; never upload a real `.env`, staff credentials or `node_modules`.

@@ -1,0 +1,14 @@
+node_modules
+.git
+.env
+.env.*
+!.env.example
+*.log
+coverage
+test-results
+playwright-report
+storage-state*
+storageState*
+*.har
+*.zip
+.DS_Store
