@@ -1,5 +1,14 @@
 # Verification — 2026-10-27
 
+## Bootstrap / terminal polling update 1.0.5
+
+- **95 tests passed**, zero failures, plus syntax checks. Local unit/security/mock HTTP/browser coverage only.
+- **12 actual-source portal/service proxy-regression checks passed**: simulated intermediary rewrites HTTP 5xx to text/plain; the existing failed-job resource remains HTTP 200 with `ok:false,status:failed,error.httpStatus:502`, and the portal immediately records `EVENT_NO_API_RESPONSES`, without catalog mutation or a second start.
+- New checks cover the exact public-script method/type/URL boundary; credential/referrer/cookie stripping; no redirects; MIME/size rejection; all other Stripe frames/APIs/POSTs blocked; runtime error sanitization/capping; bounded DOM inspection; independent job abort/hard timeout; quarantine and late-result/cache guards.
+- Actual prior Railway logs establish service failure NO_API_RESPONSES at125.663s, not a five-minute browser hang. The watchdog weakness was reproduced separately using a deliberately hung credential-free mock.
+- Public-source/config inspection established the configured Stripe provider's route-rendering gate and exact official script URL. The previous network policy blocks that required script. This is a source-supported likely cause, not live proof that the update captures events. No private account/configuration/credential data was read or retained.
+- No authenticated browser run, payment operation, deployment, GitHub push or runtime-variable change was performed. A local sandboxed Chromium launch was attempted and denied by the execution host; no sandbox workaround was applied. Docker/pinned-image and live authenticated validation remain unrun.
+
 ## Async jobs and public-bootstrap update 1.0.4
 
 - **81 tests passed**, zero failures, plus syntax checks. Tests are local unit/security/mock HTTP/browser tests, not a live staff run.
