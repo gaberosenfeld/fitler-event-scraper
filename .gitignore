@@ -1,0 +1,13 @@
+node_modules/
+.env
+.env.*
+!.env.example
+*.log
+coverage/
+test-results/
+playwright-report/
+storage-state*
+storageState*
+*.har
+*.zip
+.DS_Store
