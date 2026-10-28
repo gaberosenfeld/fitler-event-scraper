@@ -1,8 +1,9 @@
-import { EVENTS_URL, TARGET_ORIGIN, TIME_ZONE } from './config.js';
+import { EVENTS_URL, TIME_ZONE } from './config.js';
 import { ScrapeError } from './errors.js';
 import { browserFailure, launchOptions } from './diagnostics.js';
 import { closeBrowserResources } from './browser-cleanup.js';
 import { attachPageEvidence } from './page-evidence.js';
+import { routeBrowserRequest } from './network-policy.js';
 
 export async function checkPublicEventsBootstrap({ config, signal, browserType, now = Date.now, observe = () => {} }) {
   const controller = new AbortController();
@@ -24,11 +25,7 @@ export async function checkPublicEventsBootstrap({ config, signal, browserType, 
     context.setDefaultTimeout(5000); context.setDefaultNavigationTimeout(20000);
     // No staff credentials, storage/cookie reads, login submissions, or API-body
     // collection. Navigation is one fixed public page; only GET/HEAD can pass.
-    await context.route('**/*', route => {
-      const req = route.request(); let allowed = false;
-      try { allowed = new URL(req.url()).origin === TARGET_ORIGIN && ['GET', 'HEAD'].includes(req.method()) && !['image', 'font', 'media'].includes(req.resourceType()); } catch {}
-      return allowed ? route.continue() : route.abort('blockedbyclient');
-    });
+    await context.route('**/*', route => routeBrowserRequest(route, { publicOnly: true }));
     await context.routeWebSocket('**/*', socket => socket.close());
     setPhase('page_create'); const page = await context.newPage();
     page.on('popup', popup => { void popup.close().catch(() => {}); });
