@@ -27,3 +27,15 @@ test('safe structural/network evidence distinguishes wrong group, script failure
   const lines=[];createOperationLog('scrape',line=>lines.push(line)).capture({page:snapshot});assert.equal(lines.join('\n').includes('SECRET'),false);
   evidence.detach();assert.equal(page.listenerCount('request'),0);assert.equal(page.listenerCount('pageerror'),0);
 });
+
+test('runtime errors are capped, bootstrap failure category is visible, and stuck DOM inspection is bounded',async()=>{
+  const page=new EventEmitter();page.url=()=> 'https://member.fitlerclub.com/events';page.evaluate=()=>new Promise(()=>{});
+  const evidence=attachPageEvidence(page,{inspectTimeoutMs:5});
+  const req={url:()=> 'https://js.stripe.com/dahlia/stripe.js',resourceType:()=> 'script',method:()=> 'GET'};
+  page.emit('request',req);page.emit('requestfailed',req);
+  for(let i=0;i<10;i++)page.emit('pageerror',new Error('Failed to load Stripe.js PRIVATE_TEXT'));
+  await evidence.inspect();const snapshot=evidence.snapshot();
+  assert.equal(snapshot.stripeScriptRequests,1);assert.equal(snapshot.stripeScriptFailures,1);assert.equal(snapshot.blockedExternalScripts,0);
+  assert.equal(snapshot.runtimeErrors.length,5);assert.equal(snapshot.runtimeErrors[0].signature,'stripe_load_failed');assert.equal(snapshot.snapshotAvailable,false);
+  assert.equal(JSON.stringify(snapshot).includes('PRIVATE_TEXT'),false);evidence.detach();
+});
